@@ -1706,7 +1706,7 @@ var JSLINT = (function () {
                 }
 
                 function string(x) {
-                    var c, j, r = '';
+                    var c, j, ch, r = '';
 
                     if (jsonmode && x !== '"') {
                         warningAt("Strings must use doublequote.",
@@ -1866,7 +1866,10 @@ var JSLINT = (function () {
                         }
                         if (s) {
                             if (xmode === 'html') {
-                                return it('(error)', s.charAt(0));
+                                ch = s.charAt(0);
+                                // skip the problem character
+                                s = s.substr(1);
+                                return it('(error)', ch);
                             } else {
                                 errorAt("Unexpected '{a}'.",
                                         line, character, s.substr(0, 1));
