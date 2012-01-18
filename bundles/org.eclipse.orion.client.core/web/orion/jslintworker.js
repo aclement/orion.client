@@ -1694,7 +1694,7 @@ var JSLINT = (function () {
 // token -- this is called by advance to get the next token.
 
             token: function () {
-                var b, c, ch, captures, d, depth, high, i, l, low, q, t;
+                var b, c, captures, d, depth, high, i, l, low, q, t;
 
                 function match(x) {
                     var r = x.exec(s), r1;
@@ -1710,7 +1710,7 @@ var JSLINT = (function () {
                 }
 
                 function string(x) {
-                    var c, j, r = '';
+                    var c, j, ch, r = '';
 
                     if (jsonmode && x !== '"') {
                         warningAt("Strings must use doublequote.",
