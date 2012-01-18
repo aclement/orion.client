@@ -6,6 +6,10 @@
 
     NO WARRANTY EXPRESSED OR IMPLIED. USE AT YOUR OWN RISK.
 
+    Contributors:
+      Douglas Crockford - original implementation
+      Andy Clement - Fix for bug#367639
+
     See http://www.JSON.org/js.html
 
 
