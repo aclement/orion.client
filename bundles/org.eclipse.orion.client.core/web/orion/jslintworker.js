@@ -1870,10 +1870,7 @@ var JSLINT = (function () {
                         }
                         if (s) {
                             if (xmode === 'html') {
-                                ch = s.charAt(0);
-                                // skip the problem character
-                                s = s.substr(1);
-                                return it('(error)', ch);
+                                return it('(error)', s.charAt(0));
                             } else {
                                 errorAt("Unexpected '{a}'.",
                                         line, character, s.substr(0, 1));
