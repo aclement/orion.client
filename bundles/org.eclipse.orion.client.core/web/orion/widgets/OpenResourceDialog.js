@@ -114,6 +114,11 @@ var OpenResourceDialog = dojo.declare("orion.widgets.OpenResourceDialog", [dijit
 					widget.hide();
 				}
 			});
+                        dojo.connect(link,"onkeyup",widget,function(evt) {
+                                if (evt.keyCode === dojo.keys.ENTER) {
+                                        widget.hide();
+                                }
+                        });
 		});
 	},
 	
