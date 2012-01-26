@@ -928,6 +928,10 @@ function(mUndoStack, mKeyBinding, mRulers, mAnnotations, mTextDND, mRegex) {
 		isStatusActive: function() {
 			return this.linkedModeActive;
 		},
+		lineDown: function() {
+		    this.cancel();
+		    return true;
+		},
 		enter: function() {
 			this.cancel();
 			return true;
