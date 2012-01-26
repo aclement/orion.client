@@ -928,16 +928,20 @@ function(mUndoStack, mKeyBinding, mRulers, mAnnotations, mTextDND, mRegex) {
 		isStatusActive: function() {
 			return this.linkedModeActive;
 		},
-		lineDown: function() {
-		    this.cancel();
-		    return true;
+		lineUp: function() {
+			this.cancel(false);
+			return false;
 		},
-		enter: function() {
-			this.cancel();
+		lineDown: function() {
+			this.cancel(true);
 			return true;
 		},
-		/** Exits Linked Mode. Places the caret at linkedModeEscapePosition. */
-		cancel: function() {
+		enter: function() {
+			this.cancel(true);
+			return true;
+		},
+		/** Exits Linked Mode. Optionally places the caret at linkedModeEscapePosition. */
+		cancel: function(placeCaret) {
 			if (!this.linkedModeActive) {
 				return;
 			}
@@ -946,8 +950,10 @@ function(mUndoStack, mKeyBinding, mRulers, mAnnotations, mTextDND, mRegex) {
 			this.textView.setKeyBinding(new mKeyBinding.KeyBinding(9), "tab");
 			this.textView.setKeyBinding(new mKeyBinding.KeyBinding(9, false, true), null);
 			
-			this.textView.setCaretOffset(this.linkedModeEscapePosition, false);
-
+			if (placeCaret===true) {
+				this.textView.setCaretOffset(this.linkedModeEscapePosition, false);
+			}
+			
 			this.editor.reportStatus("Linked Mode exited");
 		},
 		/**
