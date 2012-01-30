@@ -26,11 +26,11 @@ define(['dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 'orion/comm
 		document.body.style.visibility = "visible";
 		dojo.parser.parse();
 
-		new mStatus.StatusReportingService(serviceRegistry, "statusPane", "notifications");
 		new mDialogs.DialogService(serviceRegistry);
 		var selection = new mSelection.Selection(serviceRegistry);
 		var commandService = new mCommands.CommandService({serviceRegistry: serviceRegistry});
 		var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
+		new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 		new mProgress.ProgressService(serviceRegistry, operationsClient);
 
 		// ...
@@ -40,17 +40,17 @@ define(['dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 'orion/comm
 		var fileClient = new mFileClient.FileClient(serviceRegistry);
 
 		var explorer = new mGitCommitExplorer.GitCommitExplorer(serviceRegistry, linkService, /* selection */ null, "artifacts", "pageActions"/*, "selectionTools"*/);
-		mGlobalCommands.generateBanner("toolbar", serviceRegistry, commandService, preferences, searcher, explorer);
+		mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, explorer);
 
 		// define commands
 		mGitCommands.createFileCommands(serviceRegistry, commandService, explorer, "pageActions", "selectionTools");
 		mGitCommands.createGitClonesCommands(serviceRegistry, commandService, explorer, "pageActions", "selectionTools", fileClient);
 
 		// define the command contributions - where things appear, first the groups
+		commandService.addCommandGroup("eclipse.gitGroup", 100, null, null, "pageActions");
+		commandService.registerCommandContribution("eclipse.orion.git.cherryPick", 100, "pageActions", "eclipse.gitGroup");
 
 		// object contributions
-		commandService.registerCommandContribution("eclipse.openCloneContent", 100);
-
 		commandService.registerCommandContribution("eclipse.removeTag", 1000);
 
 		explorer.display(dojo.hash());

@@ -227,6 +227,13 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 				}
 			}
 		},
+		
+		findCommand: function(commandId) {
+			return this._objectScope[commandId] || 
+						this._domScope[commandId] || 
+						this._globalScope[commandId];
+		}, 
+		
 		/**
 		 * Run the command with the specified commandId.
 		 *
@@ -363,7 +370,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 		showKeyBindings: function(targetNode) {
 			for (var binding in this._activeBindings) {
 				if (this._activeBindings[binding] && this._activeBindings[binding].keyBinding && this._activeBindings[binding].command) {
-					dojo.place("<span>"+mUtil.getUserKeyString(this._activeBindings[binding].keyBinding)+" = "+this._activeBindings[binding].command.name+"<br></span>", targetNode, "last");
+					dojo.place("<span role=\"listitem\">"+mUtil.getUserKeyString(this._activeBindings[binding].keyBinding)+" = "+this._activeBindings[binding].command.name+"<br></span>", targetNode, "last");
 				}
 			}
 		},
@@ -392,34 +399,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 			default:
 				throw "unrecognized command scope " + scope;
 			}
-			if (topic) {
-				this._addToTopic(command, topic);
-			}
 		},
-		
-		/**
-		 * Adds the specified command to the topic list.
-		 */
-		_addToTopic: function(command, topic) {
-			var parentTable = this._topics;
-			if (topic) {
-				var segments = topic.split("/");
-				for (var i = 0; i < segments.length; i++) {
-					if (segments[i].length > 1) {
-						if (!parentTable[segments[i]]) {
-							// create an empty slot with children.  Use topic property to identify slots we created.
-							parentTable[segments[i]] = {topic: true, children: {}};
-						} 
-						parentTable = parentTable[segments[i]].children;
-					}
-				}
-				parentTable[command.id] = command;
-			}
-		},
-		
-		renderRelatedTasks: function(topic, parent, items, renderType, forceText) {
-		},
-		
 		
 		/**
 		 * Registers a command group and specifies visual information about the group.
@@ -648,10 +628,12 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 								var menuCommand = children[0].eclipseCommand;
 								if (needMenu) {
 									menuButton = new dijit.form.DropDownButton({
-										label: group.title === "*" ? "" : group.title, // TODO undocumented hack
+										label: group.title === "*" ? "Actions" : group.title, // TODO undocumented hack
+										showLabel:  group.title !== "*",
 										dropDown: newMenu
 								        });
 									dojo.addClass(menuButton.domNode, "commandLink");
+									dojo.destroy(menuButton.valueNode); // the valueNode gets picked up by screen readers; since it's not used, we can get rid of it
 									var overclass = null;
 									if (group.title === "*") {
 										dojo.addClass(menuButton.domNode, "textless");
@@ -659,7 +641,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 										new CommandTooltip({
 											connectId: [menuButton.domNode],
 											label: "Actions menu",
-											position: ["below", "above", "right", "left"], // otherwise defaults to right and obscures adjacent commands
+											position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
 											commandParent: parent,
 											commandService: this
 										});
@@ -734,7 +716,11 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 							} else {
 								render = false;
 							}
-						} 
+						} else if (scope === "object") {
+							// if there is a scope id on the contribution it's not supposed to show up here
+							// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=368699
+							render = !positionOrder[i].scopeId;
+						}
 						// only check bindings that would otherwise render (ie, dom id matches parent, etc.)
 						var checkBinding = render && (scope === "global" || scope === "dom");
 						invocation = new CommandInvocation(this, handler, items, userData, command);
@@ -901,7 +887,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 		},
 		_addTool: function(parent, forceText, name, context, activeCommandClass, inactiveCommandClass) {
 			context.handler = context.handler || this;
-			var link = dojo.create("a");
+			var link = dojo.create("a", {tabindex: "0", role: "button", href: "javascript:void(0)"}); // the link must have an href for keyboard use
 			link.id = this.name+"link";
 			var image = null;
 			if (forceText || !this.hasImage()) {
@@ -912,7 +898,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 					new CommandTooltip({
 						connectId: [link],
 						label: this.tooltip,
-						position: ["below", "above", "right", "left"], // otherwise defaults to right and obscures adjacent commands
+						position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
 						commandParent: parent,
 						commandService: context.commandService
 					});
@@ -968,7 +954,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 				new CommandTooltip({
 					connectId: [image],
 					label: this.tooltip || this.name,
-					position: ["below", "above", "right", "left"], // otherwise defaults to right and obscures adjacent commands
+					position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
 					commandParent: parent,
 					commandService: context.commandService
 				});
@@ -983,7 +969,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 			context.handler = context.handler || this;
 			var element;
 			if (this.hrefCallback) {
-				element = dojo.create("a");
+				element = dojo.create("a", {tabindex: "0", role: "button", href: "javascript:void(0)"}); // the link must have an href for keyboard use
 				dojo.addClass(element, "commandLink");
 			} else {
 				element = dojo.create("button");
@@ -1010,7 +996,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'dijit/Menu', 'dijit/form/Drop
 				new CommandTooltip({
 					connectId: [element],
 					label: this.tooltip,
-					position: ["below", "above", "right", "left"], // otherwise defaults to right and obscures adjacent commands
+					position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
 					commandParent: parent,
 					commandService: context.commandService
 				});

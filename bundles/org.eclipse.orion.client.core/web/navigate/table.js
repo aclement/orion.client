@@ -25,7 +25,7 @@ dojo.addOnLoad(function(){
 		var preferences = core.preferences;
 		var selection = new mSelection.Selection(serviceRegistry);
 		var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
-		new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications");
+		new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 		new mProgress.ProgressService(serviceRegistry, operationsClient);
 		new mDialogs.DialogService(serviceRegistry);
 		new mSsh.SshService(serviceRegistry);
@@ -49,16 +49,15 @@ dojo.addOnLoad(function(){
 				parentId: "explorer-tree", breadcrumbId: "location", toolbarId: "pageActions", selectionToolsId: "selectionTools"});
 		
 		function refresh() {
-//			if (dojo.hash().length === 0 && fileServices.length === 1) {
-//				dojo.hash(fileServices[0].getProperty("top"));
-//				return;
-//			}
-			explorer.loadResourceList(dojo.hash());
+			explorer.loadResourceList(dojo.hash(), false, function() {
+				mGlobalCommands.setPageTarget(explorer.treeRoot, serviceRegistry, commandService);
+			});
 		}
 	
 		var navOutliner = new mNavOutliner.NavigationOutliner({parent: "favoriteProgress", toolbar: "outlinerToolbar", serviceRegistry: serviceRegistry});
 							
 		// global commands
+		mGlobalCommands.setPageCommandExclusions(["eclipse.openWith"]);
 		mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, explorer);
 		// commands shared by navigators
 		mFileCommands.createFileCommands(serviceRegistry, commandService, explorer, fileClient, "pageActions", "selectionTools");
@@ -93,7 +92,13 @@ dojo.addOnLoad(function(){
 		// commands appearing in nav tool bar
 		commandService.registerCommandContribution("eclipse.openResource", 500, "pageActions");
 		// commands appearing in local actions menu
-		commandService.registerCommandContribution("eclipse.makeFavorite", 1, null, "eclipse.fileGroup");
+		
+		// favorites is special cased because it's only been defined at the global level and we need to contribute it here
+		var faveCommand = commandService.findCommand("orion.makeFavorite");
+		if (faveCommand) {
+			commandService.addCommand(faveCommand, "object");
+			commandService.registerCommandContribution("orion.makeFavorite", 1, null, "eclipse.fileGroup");
+		}
 		commandService.registerCommandContribution("eclipse.renameResource", 2, null, "eclipse.fileGroup");
 		commandService.registerCommandContribution("eclipse.copyFile", 3, null, "eclipse.fileGroup");
 		commandService.registerCommandContribution("eclipse.moveFile", 4, null, "eclipse.fileGroup");
@@ -108,6 +113,7 @@ dojo.addOnLoad(function(){
 		//new file and new folder in the nav bar do not label the group (we don't want a menu)
 		commandService.registerCommandContribution("eclipse.newFile", 1, "pageActions", "eclipse.fileGroup.unlabeled");
 		commandService.registerCommandContribution("eclipse.newFolder", 2, "pageActions", "eclipse.fileGroup.unlabeled", false, null, new mCommands.URLBinding("newFolder", "name"));
+		commandService.registerCommandContribution("eclipse.upFolder", 3, "pageActions", "eclipse.fileGroup.unlabeled", false, new mCommands.CommandKeyBinding(38, false, false, true));
 		commandService.registerCommandContribution("eclipse.newProject", 3, "pageActions", "eclipse.fileGroup.unlabeled");
 		commandService.registerCommandContribution("eclipse.linkProject", 4, "pageActions", "eclipse.fileGroup.unlabeled");
 		// selection based command contributions in nav toolbar

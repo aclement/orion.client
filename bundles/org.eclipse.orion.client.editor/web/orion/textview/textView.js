@@ -2132,9 +2132,7 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 			this._lastMouseMoveX = e.clientX;
 			this._lastMouseMoveY = e.clientY;
 			this._setLinksVisible(changed && !this._isMouseDown && (isMac ? e.metaKey : e.ctrlKey));
-			if (!this._isMouseDown || this._dragOffset !== -1) {
-				return;
-			}
+
 			/*
 			* Feature in IE8 and older, the sequence of events in the IE8 event model
 			* for a doule-click is:
@@ -2161,6 +2159,9 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 					this._clickCount = 2;
 					return this._handleMouse(e, this._clickCount);
 				}
+			}
+			if (!this._isMouseDown || this._dragOffset !== -1) {
+				return;
 			}
 			
 			var x = e.clientX;
@@ -2365,7 +2366,16 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 			if (this._frameWidth !== newWidth || this._frameHeight !== newHeight) {
 				this._frameWidth = newWidth;
 				this._frameHeight = newHeight;
-				this._updatePage();
+				/*
+				* Feature in IE7. For some reason, sometimes Internet Explorer 7 
+				* returns incorrect values for element.getBoundingClientRect() when 
+				* inside a resize handler. The fix is to queue the work.
+				*/
+				if (isIE < 9) {
+					this._queueUpdatePage();
+				} else {
+					this._updatePage();
+				}
 			}
 		},
 		_handleRulerEvent: function (e) {
@@ -2942,7 +2952,9 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 			if (reset) {
 				var attrs = node.attributes;
 				for (var i= attrs.length; i-->0;) {
-					node.removeAttributeNode(attrs[i]); 
+					if (attrs[i].specified) {
+						node.removeAttributeNode(attrs[i]); 
+					}
 				}
 			}
 			if (!style) {
@@ -3414,7 +3426,7 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 					} else {
 						changeStart = -1;
 					}
-					delete div.modelChangedEvent;
+					div.modelChangedEvent = undefined;
 				}
 				oldSpan = div.firstChild;
 			}
@@ -3428,7 +3440,7 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 					oldStyle = oldSpan.viewStyle;
 					if (oldText === text && this._compare(style, oldStyle)) {
 						oldEnd += oldText.length;
-						delete oldSpan._rectsCache;
+						oldSpan._rectsCache = undefined;
 						span = oldSpan = oldSpan.nextSibling;
 						continue;
 					} else {
@@ -3616,7 +3628,18 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 			* event is trigged.
 			*/
 			this._loadHandler = function(e) {
-				self._handleLoad(e);
+				/*
+				* Bug in Firefox. Firefox does not send any load events for the elements inside the iframe
+				* when document.write() is called during the load event for the iframe. The fix is to async
+				* the work.
+				*/
+				if (self._sync) {
+					self._handleLoad(e);
+				} else {
+					setTimeout(function() {
+						self._handleLoad(e);
+					}, 0);
+				}
 			};
 			addHandler(frame, "load", this._loadHandler, !!isFirefox);
 			if (!isWebkit) {
@@ -3669,7 +3692,14 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 						} catch (e) {}
 					}
 					if (isLink) {
-						html.push("<link rel='stylesheet' type='text/css' href='");
+						html.push("<link rel='stylesheet' type='text/css' ");
+						/*
+						* Bug in IE7. The window load event is not sent unless a load handler is added to the link node.
+						*/
+						if (isIE < 9) {
+							html.push("onload='window' ");
+						}
+						html.push("href='");
 						html.push(sheet);
 						html.push("'></link>");
 					} else {
@@ -3695,78 +3725,38 @@ define("orion/textview/textView", ['orion/textview/textModel', 'orion/textview/k
 			if (this._frameDocument) { return; }
 			var frameWindow = this._frameWindow = this._frame.contentWindow;
 			var frameDocument = this._frameDocument = frameWindow.document;
-			frameDocument.open();
-			frameDocument.write(this._getFrameHTML());
+			var self = this;
+			frameDocument.open("text/html", "replace");
+			frameDocument.write(self._getFrameHTML());
 			frameDocument.close();
+			self._windowLoadHandler = function(e) {
+				/*
+				* Bug in Safari.  Safari sends the window load event before the
+				* style sheets are loaded. The fix is to defer creation of the
+				* contents until the document readyState changes to complete.
+				*/
+				if (frameDocument.readyState === "complete") {
+					self._createContent();
+				}
+			};
+			addHandler(frameWindow, "load", self._windowLoadHandler);
 			if (this._sync) {
 				this._createContent();
 			} else {
-				var self = this;
-				this._windowLoadHandler = function(e) {
-					/*
-					* Bug in Safari.  Safari sends the window load event before the
-					* style sheets are loaded. The fix is to defer creation of the
-					* contents until the document readyState changes to complete.
-					*/
-					if (frameDocument.readyState === "complete") {
-						self._createContent();
-					}
-				};
 				/*
-				* Bug in Firefox. Firefox does not send any load events for the elements inside the iframe
-				* when document.write() is called during the load event for the iframe.
 				* Bug in Webkit. Webkit does not send the load event for the iframe window when the main page
 				* loads as a result of backward or forward navigation.
-				* The fix, for both cases, is to use a timer to create the content only when the document is ready.
+				* The fix is to use a timer to create the content only when the document is ready.
 				*/
-				addHandler(frameWindow, "load", this._windowLoadHandler);
 				this._createViewTimer = function() {
 					if (self._clientDiv) { return; }
-					var loaded = false;
 					if (frameDocument.readyState === "complete") {
-						loaded = true;
-					} else if (frameDocument.readyState === "interactive" && isFirefox) {
-						/*
-						* Bug in Firefox. Firefox does not change the document ready state to complete 
-						* when document.write() is called during of the load event for the iframe.
-						* The fix is to wait for the ready state to be "interactive" and check that 
-						* all css rules are initialized.
-						*/
-						var styleSheets = frameDocument.styleSheets;
-						var styleSheetCount = 1;
-						if (self._stylesheet) {
-							styleSheetCount += typeof(self._stylesheet) === "string" ? 1 : self._stylesheet.length;
-						}
-						if (styleSheetCount === styleSheets.length) {
-							var index = 0;
-							while (index < styleSheets.length) {
-								var count = 0;
-								try {
-									count = styleSheets.item(index).cssRules.length;
-								} catch (ex) {
-									/*
-									* Feature in Firefox. To determine if a stylesheet is loaded the number of css rules is used, if the 
-									* stylesheet is not loaded this operation will throw an invalid access error. When a stylesheet from
-									* a different domain is loaded, accessing the css rules will result in a security exception. In this
-									* case count is set to 1 to indicate the stylesheet is loaded.
-									*/
-									if (ex.code !== DOMException.INVALID_ACCESS_ERR) {
-										count = 1;
-									}
-								}
-								if (count === 0) { break; }
-								index++;
-							}
-							loaded = index === styleSheets.length;
-						}	
-					}
-					if (loaded) {
 						self._createContent();
 					} else {
-						setTimeout(self._createViewTimer, 20);
+						setTimeout(self._createViewTimer, 10);
 					}
 				};
-				setTimeout(this._createViewTimer, 5);
+				setTimeout(this._createViewTimer, 10);
 			}
 		},
 		_createContent: function() {

@@ -12,9 +12,11 @@
 /*global window document define login logout localStorage orion */
 /*browser:true*/
 
-define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textview/keyBinding',
-        'dijit/Menu', 'dijit/MenuItem', 'dijit/form/DropDownButton', 'orion/widgets/OpenResourceDialog', 'orion/widgets/LoginDialog'], function(require, dojo, dijit, mCommands, mUtil, mKeyBinding){
+define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/extensionCommands', 'orion/util', 'orion/textview/keyBinding',
+        'dijit/Menu', 'dijit/MenuItem', 'dijit/form/DropDownButton', 'orion/widgets/OpenResourceDialog', 'orion/widgets/LoginDialog'], 
+        function(require, dojo, dijit, mCommands, mExtensionCommands, mUtil, mKeyBinding){
 
+	
 	/**
 	 * Constructs a new command parameter collector
 	 * @param {DOMElement} the toolbar containing the parameter collector
@@ -25,8 +27,10 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	 * @name orion.globalCommands.CommandParameterCollector
 	 */	
 	function CommandParameterCollector (toolbar) {
-		// get  node's parent.  If it is managed by dijit, we will need to layout
-		this.layoutWidgetId = toolbar.parentNode.id;
+		// get node's parent.  If it is managed by dijit, we will need to layout
+		if (toolbar) {
+			this.layoutWidgetId = toolbar.parentNode.id;
+		}
 	}
 	CommandParameterCollector.prototype =  {
 	
@@ -41,6 +45,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 			}
 			if (this.parameterContainer) {
 				dojo.removeClass(this.parameterContainer, this.activeClass);
+				dojo.removeClass(this.parameterContainer.parentNode, "slideContainerActive");
 			}
 			if (this.dismissArea) {
 				 dojo.empty(this.dismissArea);
@@ -89,12 +94,11 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 			}
 			if (this.parameterArea) {
 				var focusNode = fillFunction(this.parameterArea);
-				
 				if (!dojo.byId("parameterClose") && this.dismissArea) {
 				// add the close button if the fill function did not.
 					var spacer = dojo.create("span", null, this.dismissArea, "last");
 					dojo.addClass(spacer, "dismiss");
-					var close = dojo.create("span", {id: "parameterClose"}, this.dismissArea, "last");
+					var close = dojo.create("span", {id: "parameterClose", role: "button", tabindex: "0"}, this.dismissArea, "last");
 					dojo.addClass(close, "imageSprite");
 					dojo.addClass(close, "core-sprite-delete");
 					dojo.addClass(close, "dismiss");
@@ -102,10 +106,17 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 					dojo.connect(close, "onclick", dojo.hitch(this, function(event) {
 						this.close(commandNode);
 					}));
+					// onClick events do not register for spans when using the keyboard without a screen reader
+					dojo.connect(close, "onkeypress", dojo.hitch(this, function (e) {
+						if(e.keyCode === dojo.keys.ENTER) {
+							this.close(commandNode);
+						}
+					}));
 				}
 
 
 				// all parameters have been generated.  Activate the area.
+				dojo.addClass(this.parameterContainer.parentNode, "slideContainerActive");
 				dojo.addClass(this.parameterContainer, this.activeClass);
 				mUtil.forceLayout(this.parameterContainer);
 				if (focusNode) {
@@ -192,38 +203,53 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				});
 				var spacer;
 				var parentDismiss = parameterArea;
+				var finish = function (collector) {
+					collector._collectAndCall(commandInvocation, parameterArea);
+					localClose();
+				};
 
 				if (commandInvocation.parameters.options) {
 					commandInvocation.parameters.optionsRequested = false;
 					spacer = dojo.create("span", null, parentDismiss, "last");
 					dojo.addClass(spacer, "dismiss");
 					
-					var options = dojo.create("span", null, parentDismiss, "last");
+					var options = dojo.create("span", {role: "button", tabindex: "0"}, parentDismiss, "last");
 					dojo.addClass(options, "core-sprite-options");
 					dojo.addClass(options, "dismiss");
 					options.title = "More options...";
-					dojo.connect(options, "onclick", dojo.hitch(this, function () {
+					dojo.connect(options, "onclick", dojo.hitch(this, function() {
 						commandInvocation.parameters.optionsRequested = true;
-						this._collectAndCall(commandInvocation, parameterArea);
-						localClose();
+						finish(this);
+					}));
+					// onClick events do not register for spans when using the keyboard without a screen reader
+					dojo.connect(options, "onkeypress", dojo.hitch(this, function (e) {
+						if(e.keyCode === dojo.keys.ENTER) {			
+							commandInvocation.parameters.optionsRequested = true;
+							finish(this);
+						}
 					}));
 				}
 				// OK and cancel buttons
 				spacer = dojo.create("span", null, parentDismiss, "last");
 				dojo.addClass(spacer, "dismiss");
 
-				var ok = dojo.create("span", null, parentDismiss, "last");
+				var ok = dojo.create("span", {role: "button", tabindex: "0"}, parentDismiss, "last");
 				ok.title = "Submit";
 				dojo.addClass(ok, "core-sprite-ok");
 				dojo.addClass(ok, "dismiss");
-				dojo.connect(ok, "onclick", dojo.hitch(this, function () {
-					this._collectAndCall(commandInvocation, parameterArea);
-					localClose();
+				dojo.connect(ok, "onclick", dojo.hitch(this, function() {
+					finish(this);
+				}));
+				// onClick events do not register for spans when using the keyboard without a screen reader
+				dojo.connect(ok, "onkeypress", dojo.hitch(this, function (e) {
+					if(e.keyCode === dojo.keys.ENTER) {
+						finish(this);
+					}
 				}));
 				
 				spacer = dojo.create("span", null, parentDismiss, "last");
 				dojo.addClass(spacer, "dismiss");
-				var close = dojo.create("span", {id: "parameterClose"}, parentDismiss, "last");
+				var close = dojo.create("span", {id: "parameterClose", role: "button", tabindex: "0"}, parentDismiss, "last");
 				dojo.addClass(close, "imageSprite");
 				dojo.addClass(close, "core-sprite-delete");
 				dojo.addClass(close, "dismiss");
@@ -231,7 +257,12 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				dojo.connect(close, "onclick", dojo.hitch(this, function(event) {
 					localClose();
 				}));
-
+				// onClick events do not register for spans when using the keyboard without a screen reader
+				dojo.connect(close, "onkeypress", dojo.hitch(this, function (e) {
+					if(e.keyCode === dojo.keys.ENTER) {
+						localClose();
+					}
+				}));
 				return first;
 			});
 		 }
@@ -249,10 +280,9 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	var topHTMLFragment =
 	//Top row:  Logo + discovery links + user
 	'<div id="staticBanner" class="layoutBlock topRowBanner">' +
-		'<a id="home" class="layoutLeft primaryNav" href="' + require.toUrl("index.html") + '"><img src="' + require.toUrl("images/orion-small.gif") + '" alt="Orion Logo"/></a>' +
+		'<a id="home" class="layoutLeft primaryNav" href="' + require.toUrl("index.html") + '"><img src="' + require.toUrl("images/orion-small-lightondark.gif") + '" alt="Orion Logo"/></a>' +
 		'<div id="primaryNav" class="layoutLeft primaryNav"></div>' +
-		'<div id="globalActions" class="layoutLeft primaryNav"></div>' +
-		'<div id="help" class="layoutRight help"><a id="help" href="' + require.toUrl("help/index.jsp") + '"><img src="' + require.toUrl("images/help_banner.gif") + '" alt="Help"/></a></div>'+
+		'<div id="help" class="layoutRight help"><a id="help" href="' + require.toUrl("help/index.jsp") + '"><img src="' + require.toUrl("images/help.gif") + '" alt="Help"/></a></div>'+
 		'<div id="userInfo" class="layoutRight primaryNav"></div>' +
 		'<div class="layoutRight primaryNav">|</div>' +
 	'</div>' +
@@ -260,6 +290,8 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	'<div id="titleArea" class="layoutBlock titleArea">' +
 		'<div id="pageTitle" class="layoutLeft pageTitle"></div>' +
 		'<input type="search" id="search" placeholder="Search root" title="Type a keyword or wild card to search in root" class="layoutRight searchbox">' +
+		'<div id="relatedLinks" class="layoutRight pageNav"></div>' +
+		'<div id="globalActions" class="layoutRight pageNav"></div>' +
 		'<div id="dimension" class="layoutBlock dimension"></div>' +
 		'<div id="location" class="layoutBlock currentLocation"></div>' +
 	'</div>';
@@ -268,15 +300,11 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	// BEGIN BOTTOM BANNER FRAGMENT
 	// styling of the surrounding div (text-align, etc) is in ide.css "footer"
 	var bottomHTMLFragment = 
-		'<div class="layoutBlock layoutRight progress">' +
-				'<img src="'+ require.toUrl("images/none.png") +'" id="progressPane"></img>' +
-				'<span id="notifications"></span>' +
-		'</div>' +
 		'<div class="layoutBlock">' +
 			'<div class="footerBlock">' +
-				'This is a Beta build of Orion.  You can use it, play with it and explore the capabilities but BEWARE your data may be lost.' +
+				'This is a Beta build of Orion. Please try it out but BEWARE your data may be lost.' +
 			'</div>' +
-			'<div class="footerBlock">' +
+			'<div class="footerRightBlock">' +
 				'<a href="http://wiki.eclipse.org/Orion/FAQ" target="_blank">FAQ</a> | ' + 
 				'<a href="https://bugs.eclipse.org/bugs/enter_bug.cgi?product=Orion&version=0.4" target="_blank">Report a Bug</a> | ' +
 				'<a href="http://www.eclipse.org/legal/privacy.php" target="_blank">Privacy Policy</a> | ' + 
@@ -284,15 +312,17 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				'<a href="http://www.eclipse.org/legal/copyright.php" target="_blank">Copyright Agent</a> | '+
 				'<a href="' + require.toUrl("/operations/list.html") +'" target="_blank">Server Operations</a>' +
 			'</div>' +
-			'<div class="layoutRight" style="text-align: right; margin-right: 8px;">' +
-				'<span id="statusPane"></span>' +
-			'</div>' +
 		'</div>';
 	// END BOTTOM BANNER FRAGEMENT
 
 	var toolbarFragment = 
 		'<div class="layoutLeft pageToolbarLeft pageActions" id="pageActions"></div>' +
+		'<img class="layoutRight progressPane" src="'+ require.toUrl("images/none.png") +'" id="progressPane"></img>' +
+		'<div class="layoutRight pageToolbarRight pageActions pageNavigationActions" id="statusPane"></div>' +
 		'<div class="layoutRight pageToolbarRight pageActions pageNavigationActions" id="pageNavigationActions"></div>' +
+		'<div id="notificationArea" class="layoutLeft layoutBlock slideContainer">' +
+				'<div class="layoutLeft" id="notifications"></div>' +
+		'</div>' +
 		'<div id="parameterArea" class="layoutBlock slideContainer">' +
 			'<span id="pageParameterArea" class="leftSlide">' +
 				'<span id="pageCommandParameters" class="parameters"></span>' +
@@ -331,8 +361,9 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	
 	function startProgressService(serviceRegistry){
 		var progressService = serviceRegistry.getService("orion.page.progress");
-		if(progressService)
+		if(progressService) {
 			dojo.hitch(progressService, progressService.init)("progressPane");
+		}
 	}
 
 	/**
@@ -407,8 +438,9 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 			}
 		}
 		
-		if(dijit.popup.hide)
+		if (dijit.popup.hide) {
 			dijit.popup.hide(loginDialog); //close doesn't work on FF
+		}
 		dijit.popup.close(loginDialog);
 	}
 
@@ -442,6 +474,123 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 		}
 	}
 	
+	/**
+	 * Adds the related links to the banner
+	 * @name orion.globalCommands#generateRelatedLinks
+	 * @function
+	 */
+	function generateRelatedLinks(serviceRegistry, itemOrArray, itemLabels, exclusions, commandService) {
+		var items;
+		items = itemOrArray;
+		if (!dojo.isArray(itemOrArray)) {
+			items = [itemOrArray];
+			if (!itemLabels) {
+				itemLabels = [""];
+			}
+		}
+		var contributedLinks = serviceRegistry.getServiceReferences("orion.page.link.related");
+		if (contributedLinks.length <= 0) {
+			return;
+		}
+		var related = dojo.byId("relatedLinks");
+		if(!related){
+			// document not loaded
+			return;
+		}
+		var foundLink = false;
+		var linksMenu = dijit.byId("relatedLinksMenu");
+		if (linksMenu) {
+			// see http://bugs.dojotoolkit.org/ticket/10296
+			linksMenu.focusedChild = null;
+			dojo.forEach(linksMenu.getChildren(), function(child) {
+				linksMenu.removeChild(child);
+				child.destroy();
+			});
+		} else {
+			linksMenu = new dijit.Menu({
+				style: "display: none;",
+				id: "relatedLinksMenu"
+			});
+		}
+		
+		// assemble the related links
+		for (var i=0; i<contributedLinks.length; i++) {
+			var info = {};
+			var propertyNames = contributedLinks[i].getPropertyNames();
+			for (var j = 0; j < propertyNames.length; j++) {
+				info[propertyNames[j]] = contributedLinks[i].getProperty(propertyNames[j]);
+			}
+			if (info.id && info.name) {
+				var command;
+				// exclude anything in the list of exclusions
+				var position = dojo.indexOf(exclusions, info.id);
+				if (position < 0) {
+					for (var itemIndex=0; itemIndex < items.length; itemIndex++) {
+						var item = items[itemIndex];
+						// look for it in the command service.  Total reach.
+						command = commandService.findCommand(info.id);
+						if (!command) {
+							// if it's not there look for it in orion.navigate.command and create it
+							var commandsReferences = serviceRegistry.getServiceReferences("orion.navigate.command");
+							for (var j=0; j<commandsReferences.length; j++) {
+								var id = commandsReferences[j].getProperty("id");
+								if (id === info.id) {
+									var navInfo = {};
+									propertyNames = commandsReferences[j].getPropertyNames();
+									for (var k = 0; k < propertyNames.length; k++) {
+										navInfo[propertyNames[k]] = commandsReferences[j].getProperty(propertyNames[k]);
+									}
+									if (itemLabels[itemIndex]) {
+										navInfo.name += itemLabels[itemIndex];
+									}
+									var commandOptions = mExtensionCommands._createCommandOptions(navInfo, commandsReferences[j], serviceRegistry);
+									command = new mCommands.Command(commandOptions);
+								}
+							}
+						}
+						if (command) {
+							if (!command.visibleWhen || command.visibleWhen(item)) {
+								foundLink = true;
+								var invocation = new mCommands.CommandInvocation(commandService, item, item, null, command);
+								command._addMenuItem(linksMenu, invocation);
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		var menuButton = dijit.byId("related");
+		if (menuButton) {
+			if (!foundLink) {
+				menuButton.destroy();
+			}
+		} else {
+			if (foundLink) {
+				menuButton = new dijit.form.DropDownButton({
+					id: "related",
+					label: "Related Pages",
+					dropDown: linksMenu
+				});
+				dojo.place(menuButton.domNode, related, "only");
+			}
+		}	
+		mUtil.forceLayout(related);
+	}
+	
+	/**
+	 * Support for establishing a page item associated with global commands and related links
+	 */
+	var pageItem;
+	var exclusions = [];
+	function setPageCommandExclusions(excluded) {
+		exclusions = excluded;
+	}
+	function setPageTarget(itemOrArray, serviceRegistry, commandService, itemLabels) {
+		pageItem = itemOrArray;
+		generateRelatedLinks(serviceRegistry, itemOrArray, itemLabels, exclusions, commandService);
+	}
+	
 	
 	/**
 	 * Generates the banner at the top of a page.
@@ -464,7 +613,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 		if (toolbar) {
 			dojo.place(toolbarFragment, toolbar, "only");
 		} else {
-			toolbar = dojo.create ("div", {id: "pageToolbar", "class": "paneHeading layoutBlock"}, "titleArea", "after");
+			toolbar = dojo.create ("div", {id: "pageToolbar", "class": "toolbar layoutBlock"}, "titleArea", "after");
 			dojo.place(toolbarFragment, toolbar, "only");
 		}
 		
@@ -473,7 +622,8 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 
 		
 		// place an empty div for keyAssist
-		dojo.place('<div id="keyAssist" style="display: none"; class="keyAssistFloat"></div>', document.body, "last");
+		dojo.place('<div id="keyAssist" style="display: none" class="keyAssistFloat" role="list" aria-atomic="true" aria-live="assertive"></div>', document.body, "last");
+
 		
 		// generate primary nav links. 
 		var primaryNav = dojo.byId("primaryNav");
@@ -496,7 +646,6 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				}
 				if (info.href && info.name) {
 					var link = dojo.create("a", {href: info.href}, primaryNav, "last");
-					dojo.addClass(link, "commandLink");
 					text = document.createTextNode(info.name);
 					dojo.place(text, link, "only");
 				}
@@ -527,9 +676,44 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 			text = document.createTextNode(document.title);
 			dojo.place(text, title, "last");
 		}
+		
+		// Assemble global commands
+		var favoriteCommand = new mCommands.Command({
+			name: "Make Favorite",
+			tooltip: "Add a file or folder to the favorites list",
+			imageClass: "core-sprite-makeFavorite",
+			id: "orion.makeFavorite",
+			visibleWhen: function(item) {
+				var items = dojo.isArray(item) ? item : [item];
+				for (var i=0; i < items.length; i++) {
+					if (!items[i].Location) {
+						return false;
+					}
+				}
+				return true;},
+			callback: function(data) {
+				var items = dojo.isArray(data.items) ? data.items : [data.items];
+				var favService = serviceRegistry.getService("orion.core.favorite");
+				var doAdd = function(item) {
+					return function(result) {
+						if (!result) {
+							favService.makeFavorites(item);
+						} else {
+							serviceRegistry.getService("orion.page.message").setMessage(item.Name + " is already a favorite.", 2000);
+						}
+					};
+				};
+				for (var i = 0; i < items.length; i++) {
+					var item = items[i];
+					favService.hasFavorite(item.ChildrenLocation || item.Location).then(doAdd(item));
+				}
+			}});
+		commandService.addCommand(favoriteCommand, "global");
+		commandService.registerCommandContribution("orion.makeFavorite", 1, "globalActions", null, false, new mCommands.CommandKeyBinding("f", true, true));
+
 	
-		var openResourceDialog = function(searcher, /* optional */ editor) {
-			var dialog = new orion.widgets.OpenResourceDialog({searcher: searcher});
+		var openResourceDialog = function(searcher, serviceRegistry, /* optional */ editor) {
+			var dialog = new orion.widgets.OpenResourceDialog({searcher: searcher, serviceRegistry:serviceRegistry});
 			if (editor) {
 				dojo.connect(dialog, "onHide", function() {
 					editor.getTextView().focus(); // Focus editor after dialog close, Dojo's doesn't work
@@ -543,14 +727,14 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 			tooltip: "Choose a file by name and open an editor on it",
 			id: "eclipse.openResource",
 			callback: function(data) {
-				openResourceDialog(searcher, editor);
+				openResourceDialog(searcher, serviceRegistry, editor);
 			}});
 			
 		// We need a mod key binding in the editor, for now use the old one (ctrl-shift-r)
 		if (editor) {
 			editor.getTextView().setKeyBinding(new mKeyBinding.KeyBinding("r", true, true, false), "Find File Named...");
 			editor.getTextView().setAction("Find File Named...", function() {
-					openResourceDialog(searcher, editor);
+					openResourceDialog(searcher, serviceRegistry, editor);
 					return true;
 				});
 		}
@@ -577,7 +761,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				return true;
 			}});
 		commandService.addCommand(toggleBanner, "global");
-		commandService.registerCommandContribution("orion.toggleTrim", 1, "globalActions", null, true, new mCommands.CommandKeyBinding("m", true, true));
+		commandService.registerCommandContribution("orion.toggleTrim", 100, "globalActions", null, true, new mCommands.CommandKeyBinding("m", true, true));
 		
 		if (editor) {
 			editor.getTextView().setKeyBinding(new mCommands.CommandKeyBinding('m', true, true), "Toggle Trim");
@@ -586,7 +770,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 		
 		// We are using 't' for the non-editor binding because of git-hub's use of t for similar function
 		commandService.addCommand(openResourceCommand, "global");
-		commandService.registerCommandContribution("eclipse.openResource", 1, "globalActions", null, true, new mCommands.CommandKeyBinding('t'));
+		commandService.registerCommandContribution("eclipse.openResource", 100, "globalActions", null, true, new mCommands.CommandKeyBinding('t'));
 		
 		var keyAssistNode = dojo.byId("keyAssist");
 		dojo.connect(document, "onkeypress", dojo.hitch(this, function (e){ 
@@ -637,7 +821,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 							var actionName = editorActions[i];
 							var bindings = editor.getTextView().getKeyBindings(actionName);
 							for (var j=0; j<bindings.length; j++) {
-								dojo.place("<span>"+mUtil.getUserKeyString(bindings[j])+" = " + actionName + "<br></span>", keyAssistNode, "last");
+								dojo.place("<span role=\"listitem\">"+mUtil.getUserKeyString(bindings[j])+" = " + actionName + "<br></span>", keyAssistNode, "last");
 							}
 						}
 					}
@@ -650,19 +834,44 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 				return true;
 			}});
 		commandService.addCommand(keyAssistCommand, "global");
-		commandService.registerCommandContribution("eclipse.keyAssist", 1, "globalActions", null, true, new mCommands.CommandKeyBinding(191, false, true));
+		commandService.registerCommandContribution("eclipse.keyAssist", 100, "globalActions", null, true, new mCommands.CommandKeyBinding(191, false, true));
 		if (editor) {
 			editor.getTextView().setKeyBinding(new mCommands.CommandKeyBinding('L', true, true), "Show Keys");
 			editor.getTextView().setAction("Show Keys", keyAssistCommand.callback);
 		}
-
-		// generate global commands
-		var toolbar = dojo.byId("globalActions");
-		if (toolbar) {	
-			dojo.empty(toolbar);
-			// need to have some item, for global scoped commands it won't matter
-			var item = handler || {};
-			commandService.renderCommands(toolbar, "global", item, handler, "tool");
+		
+		// render global commands
+		var globalTools = dojo.byId("globalActions");
+		if (globalTools) {	
+			dojo.empty(globalTools);
+			// need to have some item associated with the command
+			var item = pageItem || handler || {};
+			commandService.renderCommands(globalTools, "global", item, handler, "tool");
+		}
+		
+		// provide free "open with" object level unless already done
+		var index = dojo.indexOf(exclusions, "eclipse.openWith");
+		if (index < 0) {
+			var contentTypeService = serviceRegistry.getService("orion.file.contenttypes");
+			if (contentTypeService) {
+				contentTypeService.getContentTypesMap().then(function(map) {
+					var openWithCommands = mExtensionCommands._createOpenWithCommands(serviceRegistry, map);
+					for (var i=0; i<openWithCommands.length; i++) {
+						var commandInfo = openWithCommands[i].properties;
+						var service = openWithCommands[i].service;
+						var commandOptions = mExtensionCommands._createCommandOptions(commandInfo, service, serviceRegistry);
+						var command = new mCommands.Command(commandOptions);
+						command.isEditor = commandInfo.isEditor;
+						var openWithGroupCreated = false;
+						commandService.addCommand(command, "object");
+						if (!openWithGroupCreated) {
+							openWithGroupCreated = true;
+							commandService.addCommandGroup("eclipse.openWith", 1000, "Open With");
+						}
+						commandService.registerCommandContribution(command.id, i, null, "eclipse.openWith");
+					}
+				});
+			}
 		}
 		
 		generateUserInfo(serviceRegistry);
@@ -689,11 +898,14 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/util', 'orion/textv
 	//return the module exports
 	return {
 		generateUserInfo: generateUserInfo,
+		generateRelatedLinks: generateRelatedLinks,
 		generateDomCommandsInBanner: generateDomCommandsInBanner,
 		generateBanner: generateBanner,
 		notifyAuthenticationSite: notifyAuthenticationSite,
 		setPendingAuthentication: setPendingAuthentication,
 		CommandParameterCollector: CommandParameterCollector,
-		getAuthenticationIds: getAuthenticationIds
+		getAuthenticationIds: getAuthenticationIds,
+		setPageTarget: setPageTarget,
+		setPageCommandExclusions: setPageCommandExclusions
 	};
 });

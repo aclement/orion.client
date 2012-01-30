@@ -26,22 +26,22 @@ mBootstrap.startup().then(function(core) {
 	document.body.style.visibility = "visible";
 	dojo.parser.parse();
 	
-	new mStatus.StatusReportingService(serviceRegistry, "statusPane", "notifications");
 	new mDialogs.DialogService(serviceRegistry);
 	var selection = new mSelection.Selection(serviceRegistry);
 	new mSshTools.SshService(serviceRegistry);
 	var commandService = new mCommands.CommandService({serviceRegistry: serviceRegistry});
 	var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
 	new mProgress.ProgressService(serviceRegistry, operationsClient);
+	new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 	
 	// ...
-	var searcher = new mSearchClient.Searcher({serviceRegistry: serviceRegistry});
 	var linkService = new mLinks.TextLinkService({serviceRegistry: serviceRegistry});
 	var gitClient = new mGitClient.GitService(serviceRegistry);
 	var fileClient = new mFileClient.FileClient(serviceRegistry);
+	var searcher = new mSearchClient.Searcher({serviceRegistry: serviceRegistry, commandService: commandService, fileService: fileClient});
 	
 	var explorer = new mGitRepositoryExplorer.GitRepositoryExplorer(serviceRegistry, linkService, /* selection */ null, "artifacts", "pageActions"/*, "selectionTools"*/);
-	mGlobalCommands.generateBanner("toolbar", serviceRegistry, commandService, preferences, searcher, explorer);
+	mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, explorer);
 	
 	// define commands
 	mGitCommands.createFileCommands(serviceRegistry, commandService, explorer, "pageActions", "selectionTools");
@@ -73,6 +73,8 @@ mBootstrap.startup().then(function(core) {
 	// render commands
 	mGitCommands.updateNavTools(serviceRegistry, explorer, "pageActions", "selectionTools", {});
 	
+	// process the URL to find our bindings, since we can't be sure these bindings were defined when the URL was first processed.
+	commandService.processURL(window.location.href);
 	
 	fileClient.loadWorkspace().then(
 		function(workspace){

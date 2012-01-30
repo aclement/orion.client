@@ -99,11 +99,11 @@ var exports = {};
 				sshService.getKnownHosts().then(function(knownHosts){
 					options.knownHosts = knownHosts;
 					func(options);
-					if(options.failedOperation){
-						var progressService = serviceRegistry.getService("orion.page.progress");
-						dojo.hitch(progressService, progressService.removeOperation)(options.failedOperation.Location, options.failedOperation.Id);
-					}
 				});
+				if(options.failedOperation){
+					var progressService = serviceRegistry.getService("orion.page.progress");
+					dojo.hitch(progressService, progressService.removeOperation)(options.failedOperation.Location, options.failedOperation.Id);
+				}
 			});
 		}
 	};
@@ -118,6 +118,10 @@ var exports = {};
 				});		
 		credentialsDialog.startup();
 		credentialsDialog.show();
+		if(options.failedOperation){
+			var progressService = serviceRegistry.getService("orion.page.progress");
+			dojo.hitch(progressService, progressService.removeOperation)(options.failedOperation.Location, options.failedOperation.Id);
+		}
 	};
 
 	exports.getDefaultSshOptions = function(serviceRegistry, authParameters){
@@ -167,7 +171,17 @@ var exports = {};
 				return;
 			}
 		default:
-			console.error("error " + jsonData.HttpCode + " while running operation: " + jsonData.DetailedMessage);
+			var display = [];
+			display.Severity = "Error";
+			display.HTML = false;
+			
+			try {
+				display.Message = jsonData.DetailedMessage ? jsonData.DetailedMessage : jsonData.Message;
+			} catch (Exception) {
+				display.Message = error.message;
+			}
+			
+			serviceRegistry.getService("orion.page.message").setProgressResult(display);
 			break;
 		}
 			
@@ -683,9 +697,6 @@ var exports = {};
 											explorer.loadCommitsList(remoteJsonData.CommitLocation + "?page=1", remoteJsonData, true);
 									});
 								}
-								if (item.Type === "Remote") {
-									dojo.hitch(explorer, explorer.changedItem)(item);
-								}
 								dojo.hitch(explorer, explorer.changedItem)(item);
 							}, displayErrorOnStatus);
 						}, func, "Fetch Git Repository");
@@ -1116,7 +1127,7 @@ var exports = {};
 					var obj = JSON.parse(item.responseText);
 					cloneLocation = obj.JsonData.CloneLocation;
 				}
-
+				var gitService = serviceRegistry.getService("orion.git.provider");
 				dojo.xhrGet({
 					url : cloneLocation,
 					headers : {
@@ -1125,21 +1136,13 @@ var exports = {};
 					handleAs : "json",
 					timeout : 5000,
 					load : function(clone, secondArg) {
-						dojo.xhrGet({
-							url : clone.Children[0].BranchLocation,
-							headers : {
-								"Orion-Version" : "1"
-							},
-							handleAs : "json",
-							timeout : 5000,
-							load : function(branches, secondArg) {
-								dojo.forEach(branches.Children, function(branch, i) {
-									if (branch.Current == true){
-										clientDeferred.callback(require.toUrl("git/git-log.html") + "#" + branch.CommitLocation + "?page=1");
-										return;
-									}
-								});
-							}
+						gitService.getGitClone(clone.Children[0].BranchLocation, function(branches){
+							dojo.forEach(branches.Children, function(branch, i) {
+								if (branch.Current == true){
+									clientDeferred.callback(require.toUrl("git/git-log.html") + "#" + branch.CommitLocation + "?page=1");
+									return;
+								}
+							});
 						});
 					}
 				});
@@ -1386,6 +1389,7 @@ var exports = {};
 			}
 		});
 		commandService.addCommand(cherryPickCommand, "object");
+		commandService.addCommand(cherryPickCommand, "dom");
 	};
 
 	exports.createStatusCommands = function(serviceRegistry, commandService, refreshStatusCallBack, cmdBaseNumber, navigator) {

@@ -24,6 +24,9 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 		this._operationsClient = operationsClient;
 		this._initDone = false;
 		this._topicListeners = {};
+		this._myOperations = {};
+		this._lastOperation = null;
+		this._lastIconClass = null;
 	}
 	
 	ProgressService.prototype = /** @lends orion.progress.ProgressService.prototype */ {
@@ -42,7 +45,7 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 						window.setTimeout(function() {
 							dojo.hitch(that, that._checkOperationsChanges());
 						}, 5000);
-					}, function(error){throw new Error(error);});
+					}, function(error){console.error(error);});
 				}else{
 					dojo.hitch(that, that._generateOperationsInfo(JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}')));
 					window.setTimeout(function() {
@@ -55,7 +58,7 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 						//refresh operation list every time when user changes
 						that._operationsClient.getRunningOperations().then(function(operationsList){
 							dojo.hitch(that, that._loadOperationsList)(operationsList);
-						},function(error){throw new Error(error);});
+						},function(error){console.error(error);});
 					}
 				}, false);
 				
@@ -77,7 +80,7 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 			 * @returns {Date}
 			 */
 			getLastListUpdate: function(){
-				var list = JSON.parse(localStorage.getItem("orionOperations") || "{}");
+				var list = JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}');
 				return list.lastClientDate ? new Date(list.lastClientDate) : new Date(0);
 			},
 			_checkOperationsChanges: function(){
@@ -100,7 +103,7 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 									operationsToDelete.push(i);
 									return error;
 								}
-								throw new Error(error); //TODO what to do on error?
+								console.error(error); //TODO what to do on error?
 							});
 						})(i);
 					}
@@ -132,23 +135,37 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 				}catch(e){}
 				dijit.focus(this._operationsDialog.domNode);
 			},
+			
+			_switchIconTo: function(iconClass) {
+				if (this._lastIconClass) {
+					dojo.removeClass(this._progressPane, this._lastIconClass);
+				}
+				this._lastIconClass = iconClass;
+				dojo.addClass(this._progressPane, this._lastIconClass);
+			}, 
+			
 			_generateOperationsInfo: function(operations){
-				this._operationsDialog.setOperations(operations);
+				this._operationsDialog.setOperations(operations, this._myOperations);
 				
 				if(!operations.Children || operations.Children.length==0){
-					this._progressPane.className = "progressPane progressPane_empty";
+					this._switchIconTo("progressPane_empty");
 					this._progressPane.title = "Operations";
 					return;
 				}
 				var status = "";
 				for(var i=0; i<operations.Children.length; i++){
 					var operation = operations.Children[i];
+					if(!this._myOperations[operation.Id])
+						continue; //only operations run by this page change status
 					if(operation.Running==true){
 						status = "running";
 						break;
 					}
-					if(operation.Result){
-						switch (this._operationsDialog.parseProgressResult(operation.Result).Severity) {
+				}
+				
+				if(status==="" && this._lastOperation!=null){
+					if(this._lastOperation.Result){
+						switch (this._operationsDialog.parseProgressResult(this._lastOperation.Result).Severity) {
 						case "Warning":
 							if(status!=="error")
 								status="warning";
@@ -161,19 +178,19 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 				switch(status){
 				case "running":
 					this._progressPane.title = "Operations running";
-					this._progressPane.className = "progressPane progressPane_running";
+					this._switchIconTo("progressPane_running");
 					break;
 				case "warning":
 					this._progressPane.title = "Some operations finished with warning";
-					this._progressPane.className = "progressPane progressPane_warning";
+					this._switchIconTo("progressPane_warning");
 					break;
 				case "error":
 					this._progressPane.title = "Some operations finished with error";
-					this._progressPane.className = "progressPane progressPane_error";
+					this._switchIconTo("progressPane_error");
 					break;
 				default:
 					this._progressPane.title = "Operations";
-					this._progressPane.className = "progressPane progressPane_operations";					
+					this._switchIconTo("progressPane_operations");					
 				}
 			},
 			/**
@@ -183,6 +200,9 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 			 * @returns {dojo.Deferred} notified when operation finishes
 			 */
 			followOperation: function(operationJson, deferred, operationLocation){
+				if(operationJson.Id){
+					this._myOperations[operationJson.Id] = true;
+				}
 				var result = deferred ? deferred : new dojo.Deferred();
 				this.writeOperation(operationJson);
 				var that = this;
@@ -199,10 +219,15 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 					that._serviceRegistry.getService("orion.page.message").setProgressMessage("");
 					var severity = this._operationsDialog.parseProgressResult(operationJson.Result).Severity;
 					if(severity=="Error" || severity=="Warning"){
-						dojo.hitch(that, that._openOperationsPopup)();
 						operationJson.Result.failedOperation = {Location: operationLocation, Id: operationJson.Id, Name: operationJson.Name};
+						result.callback(operationJson);
+						setTimeout(function(){
+							if(that._myOperations[operationJson.Id]) // give 10 miliseconds for the operation handler to remove the operation
+								dojo.hitch(that, that._openOperationsPopup)();							
+						}, 10);
+					}else{
+						result.callback(operationJson);
 					}
-					result.callback(operationJson);
 					
 					if(!operationJson.Failed && operationJson.Idempotent==true){
 						window.setTimeout(function() {
@@ -215,18 +240,43 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 			},
 			removeOperation: function(operationLocation, operationId){
 				that = this;
-				dojo.hitch(that._operationsClient, that._operationsClient.removeOperation)(operationLocation).then(function(){
-					var operations = JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}');
-					for(var i=0; i<operations.Children.length; i++){
-						var operation = operations.Children[i];
-						if(operation.Id && operation.Id===operationId){
-							operations.Children.splice(i, 1);
-							break;
-						}
+				if(operationId){
+					if(this._lastOperation!=null && this._lastOperation.Id === operationId){
+						this._lastOperation = null;
 					}
-					localStorage.setItem("orionOperations", JSON.stringify(operations));
-					dojo.hitch(that, that._generateOperationsInfo)(operations); 
+					delete this._myOperations[operationId];
+				}
+				dojo.hitch(that._operationsClient, that._operationsClient.removeOperation)(operationLocation).then(function(){
+					dojo.hitch(that, that.removeOperationFromTheList)(operationId);
 				});
+			},
+			removeOperationFromTheList: function(operationId){
+				if(this._lastOperation!=null && this._lastOperation.Id === operationId){
+					this._lastOperation = null;
+				}
+				delete this._myOperations[operationId];
+				
+				var operations = JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}');
+				for(var i=0; i<operations.Children.length; i++){
+					var operation = operations.Children[i];
+					if(operation.Id && operation.Id===operationId){
+						operations.Children.splice(i, 1);
+						break;
+					}
+				}
+				localStorage.setItem("orionOperations", JSON.stringify(operations));
+				this._generateOperationsInfo(operations); 
+			},
+			removeCompletedOperations: function(){
+				var operations = JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}');
+				for(var i=operations.Children.length-1; i>=0; i--){
+					var operation = operations.Children[i];
+					if(!operation.Running){
+						operations.Children.splice(i, 1);
+					}
+				}
+				localStorage.setItem("orionOperations", JSON.stringify(operations));
+				this._generateOperationsInfo(operations);
 			},
 			setProgressResult: function(result){
 				this._serviceRegistry.getService("orion.page.message").setProgressResult(result);
@@ -270,6 +320,7 @@ define(['require', 'dojo', 'orion/globalCommands', 'orion/widgets/OperationsDial
 			},
 			writeOperation: function(operationj){
 				var operationJson = JSON.parse(JSON.stringify(operationj));
+				this._lastOperation = operationJson;
 				var operations = JSON.parse(localStorage.getItem("orionOperations") || '{"Children": []}');
 				for(var i=0; i<operations.Children.length; i++){
 					var operation = operations.Children[i];

@@ -9,8 +9,8 @@
  * Contributors: IBM Corporation - initial API and implementation
  ******************************************************************************/
 
-define(['require', 'dojo',  'orion/compare/compare-container', 'orion/commands', 'orion/git/git-commit-navigator', 'orion/git/gitCommands', 'dijit/layout/ContentPane'], function(
-		require, dojo,  mCompareContainer, mCommands, mGitCommitNavigator, mGitCommands) {
+define(['require', 'dojo',  'orion/compare/compare-container', 'orion/commands', 'orion/git/git-commit-navigator', 'orion/git/gitCommands', 'orion/util', 'dijit/layout/ContentPane'], function(
+		require, dojo,  mCompareContainer, mCommands, mGitCommitNavigator, mGitCommands, mUtil) {
 
 	var orion = orion || {};
 
@@ -238,7 +238,7 @@ orion.GitStatusContentRenderer = (function() {
 				}
 			});
 			
-			var actionCol = dojo.create("td", {id: row.id+"actions"}, row, "last");
+			var actionCol = dojo.create("td", {id: row.id+"actionswrapper"}, row, "last");
 			dojo.addClass(actionCol, "statusAction");
 			actionCol.noWrap= true;
 			var actionsWrapper = dojo.create("span", {id: row.id+"actionsWrapper"}, actionCol, "only");
@@ -265,9 +265,8 @@ orion.GitStatusTableRenderer = (function() {
 	GitStatusTableRenderer.prototype = {
 		render: function (renderSeparator) {
 			var headingSection = dojo.create("div", null, this._parentId);
-			dojo.addClass(headingSection, "paneHeadingContainer paneHeadingContainerFixed");
+			dojo.addClass(headingSection, "auxpaneHeading paneHeadingFixed");
 			var title = dojo.create("span", {id : this._type + "_header" ,innerHTML: this._header}, headingSection);
-			dojo.addClass(title, "paneHeading");
 			var localTools = dojo.create("span", null, headingSection);
 			dojo.addClass(localTools,  "paneHeadingToolbar");
 			
@@ -325,9 +324,8 @@ orion.GitCommitZoneRenderer = (function() {
 		render: function (renderSeparator) {
 			this._commitZone = dojo.create("div", null, this._parentId, "last");
 			var headingSection = dojo.create("div", null, this._commitZone);
-			dojo.addClass(headingSection, "paneHeadingContainer paneHeadingContainerFixed");
+			dojo.addClass(headingSection, "auxpaneHeading paneHeadingFixed");
 			var title = dojo.create("span", {innerHTML: "Commit message"}, headingSection);
-			dojo.addClass(title, "paneHeading");
 			
 			var commitTable = dojo.create("table", null, this._commitZone);
 			var commitRow = dojo.create("tr", null, commitTable);
@@ -490,9 +488,8 @@ orion.GitLogTableRenderer = (function() {
 		render: function (renderSeparator) {
 			var section = dojo.create("div", {id:this._sectionId}, this._parentId);
 			var headingSection = dojo.create("div", null, section);
-			dojo.addClass(headingSection, "paneHeadingContainer paneHeadingContainerFixed");
+			dojo.addClass(headingSection, "auxpaneHeading paneHeadingFixed");
 			var title = dojo.create("span", {id : this._type + "_header" ,innerHTML: this._header}, headingSection);
-			dojo.addClass(title, "paneHeading");
 			var localTools = dojo.create("span", null, headingSection);
 			dojo.addClass(localTools,  "paneHeadingToolbar");
 			this._cmdSpanAdditional = dojo.create("span", {}, localTools, "last");
@@ -770,9 +767,10 @@ orion.GitStatusController = (function() {
 			//render browser title
 			document.title = location;
 			//render page title
+			//FIXME we should not know these global page ids inside component implementations
 			dojo.place(document.createTextNode(title), "pageTitle", "only");
 			if(withBranchName) {
-				//render git log title on local branch 
+				//render git status title on local branch 
 				this._logTableRenderer.modifyHeader(branchName);
 				if(this._curBranch && this._curRemote){
 					branchName = (this._curBranch.RemoteLocation.length > 0 ? this._curBranch.RemoteLocation[0].Name : "") + "/" + this._curBranch.Name;
@@ -782,6 +780,8 @@ orion.GitStatusController = (function() {
 				//render page tilte details (clone name + remote name + local branch name)
 				dojo.place(document.createTextNode(this._curClone.Name + " on " + branchName), "location", "only");
 			}
+			mUtil.forceLayout("pageTitle");
+
 		},
 		
 		_getCloneInfo:function(){
@@ -852,7 +852,7 @@ orion.GitStatusController = (function() {
 					retDeffered.callback();
 					return;
 				}
-		        this._gitCommitNavigatorRem = new mGitCommitNavigator.GitCommitNavigator(this._registry, null, null, {checkbox: false, minimal: true}, this._remoteTableRenderer.getLogContentId());    
+		        this._gitCommitNavigatorRem = new mGitCommitNavigator.GitCommitNavigator(this._registry, null, {checkbox: false, minimal: true}, this._remoteTableRenderer.getLogContentId());    
 				dojo.place(document.createTextNode(""), this._remoteTableRenderer.getLogContentId(), "only");
 				// refresh the commit list for the remote
 				var path = this._curBranch.RemoteLocation[0].Children[0].Location + "?page=1&pageSize=5";
@@ -884,7 +884,7 @@ orion.GitStatusController = (function() {
 					}
 				});
 			} else {
-		        this._gitCommitNavigatorLog = new mGitCommitNavigator.GitCommitNavigator(this._registry, null, null, {checkbox: false, minimal: true},this._logTableRenderer.getLogContentId());
+		        this._gitCommitNavigatorLog = new mGitCommitNavigator.GitCommitNavigator(this._registry, null, {checkbox: false, minimal: true},this._logTableRenderer.getLogContentId());
 		        dojo.place(document.createTextNode(""), this._logTableRenderer.getLogContentId(), "only");
 				var path = (that._curBranch ? that._curBranch.CommitLocation :  that._model.items.CommitLocation) + "?page=1&pageSize=5";
 				dojo.xhrGet({ //TODO Bug 367352

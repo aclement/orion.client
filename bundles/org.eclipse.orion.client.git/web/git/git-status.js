@@ -11,7 +11,7 @@
 
 define(['dojo', 'orion/bootstrap', 'orion/status', 'orion/progress',  'orion/commands',
 	        'orion/searchClient', 'orion/fileClient', 'orion/operationsClient', 'orion/globalCommands', 'orion/git/gitClient', 'orion/git/git-status-table', 'orion/breadcrumbs','orion/dialogs','orion/ssh/sshTools',
-	        'dojo/parser', 'dojo/hash', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane'], 
+	        'dojo/parser', 'dojo/hash', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane', 'orion/widgets/eWebBorderContainer'], 
 			function(dojo, mBootstrap, mStatus, mProgress, mCommands, mSearchClient, mFileClient, mOperationsClient, mGlobalCommands, mGitClient, mGitStatusTable, mBreadcrumbs,mDialogs,mSshTools) {
 
 	dojo.addOnLoad(function() {
@@ -31,10 +31,10 @@ define(['dojo', 'orion/bootstrap', 'orion/status', 'orion/progress',  'orion/com
 			new mDialogs.DialogService(serviceRegistry);
 			
 			var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
-			var statusService = new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications");
+			var statusService = new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 			new mProgress.ProgressService(serviceRegistry, operationsClient);
 		
-			mGlobalCommands.generateBanner("toolbar", serviceRegistry, commandService, preferences, searcher);
+			mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher);
 		
 			var controller = new mGitStatusTable.GitStatusController({renderLog :true},serviceRegistry , commandService , statusService,"unstagedZone" , "stagedZone");
 			controller.getGitStatus(dojo.hash(),true);

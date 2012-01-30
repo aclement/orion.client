@@ -1,6 +1,6 @@
 /*******************************************************************************
  * @license
- * Copyright (c) 2010, 2011 IBM Corporation and others 
+ * Copyright (c) 2010, 2012 IBM Corporation and others 
  * All rights reserved. This program and the accompanying materials are made 
  * available under the terms of the Eclipse Public License v1.0 
  * (http://www.eclipse.org/legal/epl-v10.html), and the Eclipse Distribution 
@@ -13,7 +13,7 @@
 /*global define window document */
 /*jslint devel:true*/
 
-define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExplorer', 'orion/searchUtils', 'dijit/form/Button', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane' ], function(require, dojo, dijit, mAuth, mUtil, mExplorer, mSearchUtils){
+define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchUtils', 'dijit/form/Button', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane' ], function(require, dojo, dijit, mAuth, mUtil, mSearchUtils){
 
 	/**
 	 * Creates a new search client.
@@ -39,13 +39,13 @@ define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExp
 		 * @param {Boolean} [hideSummaries] Don't show the summary of what matched beside each result.
 		 * @param {Boolean} [useSimpleFormat] Use simple format that only shows the file name to show the result, other wise use a complex format with search details.
 		 */
-		search: function(resultsNode, query, excludeFile,  generateHeadingAndSaveLink, onResultReady,  hideSummaries, useSimpleFormat) {
+		search: function(resultsNode, query, excludeFile,  generateHeadingAndSaveLink, onResultReady,  hideSummaries) {
 			var qObj = mSearchUtils.parseQueryStr(query);
 			try{
 				this._fileService.search(qObj.location, query).then(
 					dojo.hitch(this, function(jsonData) {
 						this.showSearchResult(resultsNode, query, excludeFile, generateHeadingAndSaveLink, onResultReady, 
-								hideSummaries, useSimpleFormat, jsonData); 
+								hideSummaries, jsonData); 
 					})
 				);
 			}
@@ -85,18 +85,26 @@ define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExp
 		 * @param {String} searchLocation The base location of the search service
 		 * @param {String} query The text to search for, or null when searching purely on file name
 		 * @param {String} [nameQuery] The name of a file to search for
+		 * @param {String} [sort] The field to sort search results on. By default results will sort by path
 		 */
-		createSearchQuery: function(query, nameQuery)  {
+		createSearchQuery: function(query, nameQuery, sort)  {
+			if (!sort) {
+				sort = "Path";
+			}
+			sort += " asc";//ascending sort order
 			if (nameQuery) {
 				//assume implicit trailing wildcard if there isn't one already
 				var wildcard= (/\*$/.test(nameQuery) ? "" : "*");
-				return "?rows=100&start=0&q=" + "Name:" + this._luceneEscape(nameQuery, true) + wildcard;
+				return  mSearchUtils.generateSearchQuery({sort: sort,
+					rows: 100,
+					start: 0,
+					searchStr: "Name:" + this._luceneEscape(nameQuery, true) + wildcard});
 			}
-			return  mSearchUtils.generateSearchQuery({sort: "Path asc",
-													 rows: 40,
-													 start: 0,
-													 searchStr: this._luceneEscape(query, true),
-													 location: this.location});
+			return  mSearchUtils.generateSearchQuery({sort: sort,
+				rows: 40,
+				start: 0,
+				searchStr: this._luceneEscape(query, true),
+				location: this.location});
 		},
 		/**
 		 * Escapes all characters in the string that require escaping in Lucene queries.
@@ -143,45 +151,41 @@ define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExp
 			return div;
 		},
 		
-		showSearchResult: function(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, useSimpleFormat, jsonData) {
-			if(useSimpleFormat) {
-				this.showSimpleResult(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, jsonData);
-			} else {
-				this.showComplexResult(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, jsonData);
-			}
-		},
-		
-		showComplexResult: function(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, jsonData) {
-			var nonhash= window.location.href.split('#')[0];
-			var foundValidHit = false;
-			var resultLocation = [];
-			dojo.empty(resultsNode);
-			var token = jsonData.responseHeader.params.q;
-			token= token.substring(token.indexOf("}")+1);
-			if (jsonData.response.numFound > 0) {
-				for (var i=0; i < jsonData.response.docs.length; i++) {
-					var hit = jsonData.response.docs[i];
-					// ignore hits in the file that launched the search
-					if (!hit.Directory && hit.Location !== excludeFile) {
-						var col;
-						if (!foundValidHit) {
-							foundValidHit = true;
+		showSearchResult: function(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, jsonData) {
+			
+			//Helper function to append a path String to the end of a search result dom node 
+			var appendPath = (function() { 
+			
+				//Map to track the names we have already seen. If the name is a key in the map, it means
+				//we have seen it already. Optionally, the value associated to the key may be a function' 
+				//containing some deferred work we need to do if we see the same name again.
+				var namesSeenMap = {};
+				
+				function doAppend(domElement, hit) {
+					var path = hit.Path;
+					path = path.substring(0, path.length-hit.Name.length-1);
+					domElement.appendChild(document.createTextNode(' - ' + path + ' '));
+				}
+				
+				function appendPath(domElement, hit) {
+					var name = hit.Name;
+					if (namesSeenMap.hasOwnProperty(name)) {
+						//Seen the name before
+						doAppend(domElement, hit);
+						var deferred = namesSeenMap[name];
+						if (typeof(deferred)==='function') {
+							//We have seen the name before, but prior element left some deferred processing
+							namesSeenMap[name] = null;
+							deferred();
 						}
-						var loc = hit.Location;
-						resultLocation.push({linkLocation: require.toUrl("edit/edit.html") +"#" + loc, location: loc, name: hit.Name, lastModified: hit.LastModified});
-						
+					} else {
+						//Not seen before, so, if we see it again in future we must append the path
+						namesSeenMap[name] = function() { doAppend(domElement, hit); };
 					}
 				}
-				if (typeof(onResultReady) === "function") {
-					onResultReady(resultsNode);
-				}
-			}
-			var explorer = new mExplorer.SearchResultExplorer(this.registry, this._commandService, resultLocation,  resultsNode, query, jsonData.response.numFound);
-			explorer.startUp();
-		},
-		
-		showSimpleResult: function(resultsNode, query, excludeFile, generateHeading, onResultReady, hideSummaries, jsonData) {
-			var nonhash= window.location.href.split('#')[0];
+				return appendPath;
+			}()); //End of appendPath function
+
 			var foundValidHit = false;
 			dojo.empty(resultsNode);
 			var token = jsonData.responseHeader.params.q;
@@ -196,7 +200,6 @@ define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExp
 						if (!foundValidHit) {
 							foundValidHit = true;
 							if (generateHeading) {
-								var favoriteName = token || query;
 								var heading = table.insertRow(0);
 								col = heading.insertCell(0);
 								col.innerHTML = "<h2>Search Results On</h2>";
@@ -213,6 +216,7 @@ define(['require', 'dojo', 'dijit', 'orion/auth', 'orion/util', 'orion/searchExp
 						var loc = hit.Location;
 						hitLink.setAttribute('href', require.toUrl("edit/edit.html") + "#" + loc);
 						col.appendChild(hitLink);
+						appendPath(col, hit);
 						
 						if (!hideSummaries && jsonData.highlighting && jsonData.highlighting[hit.Id] && jsonData.highlighting[hit.Id].Text) {
 							var highlightText = jsonData.highlighting[hit.Id].Text[0];

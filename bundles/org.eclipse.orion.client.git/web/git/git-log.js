@@ -1,6 +1,6 @@
 /******************************************************************************* 
  * @license
- * Copyright (c) 2011 IBM Corporation and others.
+ * Copyright (c) 2011, 2012 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials are made 
  * available under the terms of the Eclipse Public License v1.0 
  * (http://www.eclipse.org/legal/epl-v10.html), and the Eclipse Distribution 
@@ -13,10 +13,10 @@
 /*browser:true*/
 define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 'orion/commands',
         'orion/auth', 'orion/dialogs', 'orion/selection', 'orion/fileClient', 'orion/operationsClient', 'orion/searchClient', 'orion/globalCommands', 'orion/git/gitClient',
-        'orion/breadcrumbs', 'orion/ssh/sshTools', 'orion/git/git-commit-details', 'orion/git/git-commit-navigator', 'orion/git/gitCommands',
+        'orion/breadcrumbs', 'orion/ssh/sshTools', 'orion/git/git-commit-navigator', 'orion/git/gitCommands',
 	    'orion/links', 'dojo/parser', 'dojo/hash', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane', 'orion/widgets/eWebBorderContainer'], 
 		function(require, dojo, mBootstrap, mStatus, mProgress, mCommands, mAuth, mDialogs, mSelection, mFileClient, mOperationsClient,
-					mSearchClient, mGlobalCommands, mGitClient, mBreadcrumbs, mSshTools, mGitCommitDetails, mGitCommitNavigator, mGitCommands, mLinks) {
+					mSearchClient, mGlobalCommands, mGitClient, mBreadcrumbs, mSshTools, mGitCommitNavigator, mGitCommands, mLinks) {
 
 // TODO: This is naughty -- feel bad and then fix it please
 var serviceRegistry;
@@ -29,7 +29,7 @@ var serviceRegistry;
 			dojo.parser.parse();
 			
 			var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
-			new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications");
+			new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 			new mProgress.ProgressService(serviceRegistry, operationsClient);
 			new mDialogs.DialogService(serviceRegistry);
 			var selection = new mSelection.Selection(serviceRegistry);
@@ -43,12 +43,11 @@ var serviceRegistry;
 			var gitClient = new mGitClient.GitService(serviceRegistry);
 			
 			var searcher = new mSearchClient.Searcher({serviceRegistry: serviceRegistry, commandService: commandService});
-			
-			// Commit details
-			var commitDetails = new mGitCommitDetails.CommitDetails({parent: "commitDetailsPane", commandService: commandService, linkService: linkService, detailsPane: dijit.byId("orion.gitlog")});
+
 			// Commit navigator
-			var navigator = new mGitCommitNavigator.GitCommitNavigator(serviceRegistry, selection, commitDetails, null, "explorer-tree", "pageTitle", "pageActions", "selectionTools", "pageNavigationActions");
+			var navigator = new mGitCommitNavigator.GitCommitNavigator(serviceRegistry, selection, null, "explorer-tree", "pageTitle", "pageActions", "selectionTools", "pageNavigationActions");
 			
+			mGlobalCommands.setPageCommandExclusions(["eclipse.git.remote", "eclipse.git.log"]);
 			// global commands
 			mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, navigator);
 			
@@ -81,19 +80,17 @@ var serviceRegistry;
 			commandService.registerCommandContribution("eclipse.orion.git.previousLogPage", 1, "pageNavigationActions");
 			commandService.registerCommandContribution("eclipse.orion.git.nextLogPage", 2, "pageNavigationActions");
 
-			loadResource(navigator, searcher);
-			
-			makeRightPane(navigator);
+			loadResource(navigator, searcher, commandService);
 		
 			// every time the user manually changes the hash, we need to load the
 			// workspace with that name
 			dojo.subscribe("/dojo/hashchange", navigator, function() {
-				loadResource(navigator, searcher);
+				loadResource(navigator, searcher, commandService);
 			});
 		});
 	});
 
-function loadResource(navigator, searcher){
+function loadResource(navigator, searcher, commandService){
 	var path = dojo.hash();
 	dojo.xhrGet({ //TODO Bug 367352
 		url : path,
@@ -106,17 +103,22 @@ function loadResource(navigator, searcher){
 			
 			var loadResource = function(resource){
 				var fileClient = new mFileClient.FileClient(serviceRegistry);
-				initTitleBar(fileClient, navigator, resource, searcher);
-				
-				// clear and close the commit details pane
-				navigator.loadCommitDetails(null);
-				
+				initTitleBar(fileClient, navigator, resource, searcher, commandService);
 				if (resource.Type === "RemoteTrackingBranch"){
 					var gitService = serviceRegistry.getService("orion.git.provider");
 					gitService.getLog(resource.HeadLocation, resource.Id, "Getting git incoming changes", function(scopedCommitsJsonData) {
 							navigator.renderer.setIncomingCommits(scopedCommitsJsonData.Children);
 							navigator.renderer.setOutgoingCommits([]);
-							navigator.loadCommitsList(resource.CommitLocation + "?" + new dojo._Url(path).query, resource);															
+							gitService.doGitLog(resource.CommitLocation + "?" + new dojo._Url(path).query, function(jsonData) {
+								resource.Children = jsonData.Children;
+								if(jsonData.NextLocation){
+									resource.NextLocation = resource.Location + "?" + new dojo._Url(jsonData.NextLocation).query;
+								}
+								if(jsonData.PreviousLocation ){
+									resource.PreviousLocation  = resource.Location + "?" + new dojo._Url(jsonData.PreviousLocation).query;
+								}
+								navigator.loadCommitsList(resource.CommitLocation + "?" + new dojo._Url(path).query, resource);															
+							});
 					});
 				} else if (resource.toRef){
 					if (resource.toRef.RemoteLocation && resource.toRef.RemoteLocation.length===1 && resource.toRef.RemoteLocation[0].Children && resource.toRef.RemoteLocation[0].Children.length===1)
@@ -218,7 +220,7 @@ function getRemoteFileURI(){
 	return fileURI;
 }
 
-function initTitleBar(fileClient, navigator, item, searcher){
+function initTitleBar(fileClient, navigator, item, searcher, commandService){
 	
 	var isRemote = (item.Type === "RemoteTrackingBranch");
 	var isBranch = (item.toRef && item.toRef.Type === "Branch");
@@ -235,6 +237,7 @@ function initTitleBar(fileClient, navigator, item, searcher){
 	if(fileURI){
 		fileClient.read(fileURI, true).then(
 				dojo.hitch(this, function(metadata) {
+					mGlobalCommands.setPageTarget(metadata, serviceRegistry, commandService); 
 					var branchName;
 					if (isRemote)
 						branchName = item.Name;
@@ -248,9 +251,9 @@ function initTitleBar(fileClient, navigator, item, searcher){
 						
 						serviceRegistry.getService("orion.git.provider").getGitClone(cloneURI).then(function(jsonData){
 							if(jsonData.Children && jsonData.Children.length>0) {
-								setPageTitle(branchName, jsonData.Children[0].Name, jsonData.Children[0].ContentLocation, isRemote, isBranch);
+								setPageTitle(branchName, jsonData.Children[0].Name, jsonData.Children[0].Location, isRemote, isBranch);
 							} else {
-								setPageTitle(branchName, jsonData.Name, jsonData.ContentLocation, isRemote, isBranch);
+								setPageTitle(branchName, jsonData.Name, jsonData.Location, isRemote, isBranch);
 							}
 						});
 					}else{
@@ -286,35 +289,6 @@ function initTitleBar(fileClient, navigator, item, searcher){
 	
 };
 
-function makeRightPane(explorer){
-		// set up the splitter bar and its key binding
-		var splitArea = dijit.byId("orion.gitlog");
-		
-		//by default the pane should be closed
-		if(splitArea.isRightPaneOpen()){
-			splitArea.toggle();
-		}
-				
-		var bufferedSelection = [];
-		
-		window.document.onkeydown = function (evt){
-			evt = evt || window.event;
-			var handled = false;
-			if(evt.ctrlKey && evt.keyCode  === 79){ // Ctrl+o handler for toggling outline 
-				splitArea.toggle();
-				handled = true;			
-			} 
-			if (handled) {
-				if (window.document.all) { 
-					evt.keyCode = 0;
-				} else { 
-					evt.preventDefault();
-					evt.stopPropagation();
-				}		
-			}
-		};
-}
-
 function makeHref(fileClient, seg, location, isRemote) {
 	if (!location) {
 		return;
@@ -347,7 +321,7 @@ function setPageTitle(branchName, cloneName, cloneLocation, isRemote, isBranch){
 		title += "for local branch <b>" + branchName + "</b>";
 	
 	if(cloneLocation){
-		title = title + " on <a href='" + require.toUrl("git/git-clone.html") + "#" + cloneLocation + "'>" + cloneName + "</a>";
+		title = title + " on <a href='" + require.toUrl("git/git-repository.html") + "#" + cloneLocation + "'>" + cloneName + "</a>";
 	}
 	pageTitle.innerHTML = title;
 	if(branchName){

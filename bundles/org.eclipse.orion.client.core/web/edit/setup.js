@@ -42,7 +42,7 @@ exports.setUpEditor = function(serviceRegistry, preferences, isReadOnly){
 	(function() {
 		selection = new mSelection.Selection(serviceRegistry);
 		var operationsClient = new mOperationsClient.OperationsClient(serviceRegistry);
-		statusReportingService = new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications");
+		statusReportingService = new mStatus.StatusReportingService(serviceRegistry, operationsClient, "statusPane", "notifications", "notificationArea");
 		new mProgress.ProgressService(serviceRegistry, operationsClient);
 		new mDialogs.DialogService(serviceRegistry);
 		commandService = new mCommands.CommandService({serviceRegistry: serviceRegistry, selection: selection});
@@ -112,11 +112,8 @@ exports.setUpEditor = function(serviceRegistry, preferences, isReadOnly){
 				if (providerToUse) {
 					var providerType = providerToUse.getProperty("type");
 					if (providerType === "highlighter") {
-						var service = serviceRegistry.getService(providerToUse);
-						if (service.setContentType) {
-							service.setContentType(fileContentType);
-						}
-						this.styler = new mAsyncStyler.AsyncStyler(textView, service, annotationModel);
+						this.styler = new mAsyncStyler.AsyncStyler(textView, serviceRegistry, annotationModel);
+						this.styler.setContentType(fileContentType);
 					} else if (providerType === "grammar" || typeof providerType === "undefined") {
 						var grammar = providerToUse.getProperty("grammar");
 						this.styler = new mTextMateStyler.TextMateStyler(textView, grammar, grammars);
@@ -176,6 +173,7 @@ exports.setUpEditor = function(serviceRegistry, preferences, isReadOnly){
 					var load = dojo.hitch(this, function(metadata, contents) {
 						// Metadata
 						this._fileMetadata = metadata;
+						mGlobalCommands.setPageTarget([metadata, metadata.Parents && metadata.Parents[0]], serviceRegistry, commandService, ["", " on folder"]);
 						this.setTitle(metadata.Location);
 						this._contentType = contentTypeService.getFileContentType(metadata);
 						syntaxHighlighter.highlight(fileURI, editor, this._contentType);
@@ -395,8 +393,8 @@ exports.setUpEditor = function(serviceRegistry, preferences, isReadOnly){
 				var b = dojo.create("b", null, searchFloat, "last");
 				dojo.place(document.createTextNode("\"" + searchPattern + "\"..."), b, "only");
 				searchFloat.style.display = "block";
-				var query = searcher.createSearchQuery(searchPattern);
-				searcher.search(searchFloat, query, inputManager.getInput(),false,null,false,true);
+				var query = searcher.createSearchQuery(searchPattern, null, "Name");
+				searcher.search(searchFloat, query, inputManager.getInput(),false,null,false);
 			}, 0);
 			return true;
 		});
@@ -479,7 +477,6 @@ exports.setUpEditor = function(serviceRegistry, preferences, isReadOnly){
 	dojo.subscribe("/dojo/hashchange", inputManager, function() {inputManager.hashChanged(editor);});
 	inputManager.setInput(dojo.hash(), editor);
 	
-	// TODO search location needs to be gotten from somewhere
 	mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, editor, editor, escHandler);
 	mGlobalCommands.generateDomCommandsInBanner(commandService, editor);
 		

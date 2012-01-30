@@ -25,7 +25,16 @@ define(['require', 'dojo'], function(require, dojo) {
 		}
 		DebugConnectionTreeModel.prototype = /** @lends orion.debug.DebugConnectionTreeModel.prototype */{
 			addConnection: function(connection) {
+				/* first check for a duplicate */
+				var port = connection.getPort();
+				for (var i = 0; i < this._root.length; i++) {
+					var current = this._root[i];
+					if (current.getPort() === port) {
+						return false;
+					}
+				}
 				this._root.push(connection);
+				return true;
 			},
 			getRoot: function(/**function*/ onItem) {
 				onItem(this);
@@ -35,6 +44,15 @@ define(['require', 'dojo'], function(require, dojo) {
 			},
 			getId: function(/**dojo.data.Item|String*/ item) {
 				return (item === this || item === this._id) ? this._id : item.toString();
+			},
+			removeConnection: function(connection) {
+				for (var i = 0; i < this._root.length; i++) {
+					var current = this._root[i];
+					if (current === connection) {
+						this._root.splice(i, 1);
+						return;
+					}
+				}
 			}
 		};
 		return DebugConnectionTreeModel;
@@ -58,16 +76,10 @@ define(['require', 'dojo'], function(require, dojo) {
 				if (item.shouldDisplayActions()) {
 					var actionsWrapper = dojo.create(
 						"span",
-						{id: tableRow.id + "actionswrapper", style: {visibility: "hidden"}},
+						{id: tableRow.id + "actionswrapper"},
 						actionColumn,
 						"only");
-					dojo.connect(tableRow, "onmouseover", tableRow, function() {
-						dojo.style(actionsWrapper, "visibility", "visible");
-					});
-					dojo.connect(tableRow, "onmouseout", tableRow, function() {
-						dojo.style(actionsWrapper, "visibility", "hidden");
-					});
-					this._commandService.renderCommands(actionsWrapper, "object", item, {}, "tool");	
+					this._commandService.renderCommands(actionsWrapper, "object", item, {}, "button");	
 				}
 				dojo.place(labelColumn, tableRow, "last");
 				dojo.place(actionColumn, tableRow, "last");
@@ -87,7 +99,6 @@ define(['require', 'dojo'], function(require, dojo) {
 		};
 		return DebugConnectionRenderer;
 	}());
-	
+
 	return orion.debug;
 });
-

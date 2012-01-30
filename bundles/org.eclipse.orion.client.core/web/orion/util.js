@@ -18,27 +18,6 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 	 * @name orion.util
 	 */
 
-	var _userName = null;
-
-	/**
-	 * Sets the current user name
-	 * @param {String} username The user name
-	 * @name orion.util#setUsername
-	 * @function
-	 */
-	function setUserName(userName) {
-		_userName = userName;
-	}
-
-	/**
-	 * Gets the current user name
-	 * @return {String} The user name
-	 * @function
-	 */
-	function getUserName() {
-		return _userName;
-	}
-	
 	function getUserKeyString(binding) {
 		var userString = "";
 		var isMac = navigator.platform.indexOf("Mac") !== -1;
@@ -353,17 +332,19 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 	 * Create a stylized pane heading.
 	 * @param {DomNode} titleElement the node containing the title elements.
 	 * @param {String} headingLabel the pane heading
+	 * @param {Boolean} isAuxStyle specifies whether heading is an auxiliary pane or main pane
 	 * @param {String} headingId the id for the heading label
 	 * @param {String} commandId the id for command tools
 	 * @param {Object} command service for rendering commands
 	 * @param {Object} the handler for commands
-	 * @param {Boolean} isTrimmed specifies whether the caller has already trimmed the paneHeading with styling
 	 */
-	function createPaneHeading(titleElement, headingLabel, headingId, commandId, commandService, handler, isTrimmed) {
-		if (!isTrimmed) {
-			dojo.addClass(titleElement, "paneHeadingContainer");
+	function createPaneHeading(titleElement, headingLabel, isAuxStyle, headingId, commandId, commandService, handler) {
+		if (isAuxStyle) {
+			dojo.addClass(titleElement, "auxpaneHeading");
+		} else {
+			dojo.addClass(titleElement, "paneHeading");
 		}
-		var title = dojo.place("<span class='paneHeading'>"+headingLabel+"</span>", titleElement, "only");
+		var title = dojo.place("<span>"+headingLabel+"</span>", titleElement, "only");
 		if (headingId) {
 			title.id = headingId;
 		}
@@ -394,8 +375,6 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 	
 	//return module exports
 	return {
-		setUserName: setUserName,
-		getUserName: getUserName,
 		getUserKeyString: getUserKeyString,
 		openDialog: openDialog,
 		getUserText: getUserText,

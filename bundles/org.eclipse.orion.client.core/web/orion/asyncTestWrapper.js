@@ -22,7 +22,7 @@ orion.JSTestAdapter = (function() {
 	
 	var testLoader = function(test) {
 		/* This loader is a single test on the main suite, the loader test
-		 * is finished once we have loaded the test plugin and retrieved the list of tests is contains.
+		 * is finished once we have loaded the test plugin and retrieved the list of tests it contains.
 		 * Once the all the suite's load tests are done, then the real tests are ready to go.
 		 */
 
@@ -47,7 +47,7 @@ orion.JSTestAdapter = (function() {
 			
 			/* After the tests, the registry must be cleaned up */
 			var shutdown = new dojo.Deferred();
-			queue.call("Shutdown " + test , function(callbacks) {
+			queue.call("Shutdown " + test, function(callbacks) {
 				shutdown.resolve(callbacks.noop());
 			});
 			
@@ -61,10 +61,12 @@ orion.JSTestAdapter = (function() {
 					}
 				});
 				service.addEventListener("runDone", function(runName, obj) {
-					shutdown.then(function(noop) {
-						loaderPluginRegistry.shutdown();
-						noop();
-					});
+					if (!runName) {
+						shutdown.then(function(noop) {
+							loaderPluginRegistry.shutdown();
+							noop();
+						});
+					}
 				});
 					
 				console.log("Launching test suite: " + test);

@@ -11,7 +11,7 @@
 
 /*global define console document */
 
-define(['require', 'dojo', 'orion/explorer', 'orion/util', 'orion/breadcrumbs'], function(require, dojo, mExplorer, mUtil, mBreadcrumbs) {
+define(['require', 'dojo', 'orion/explorer', 'orion/util', 'orion/breadcrumbs', 'orion/git/widgets/CommitTooltipDialog'], function(require, dojo, mExplorer, mUtil, mBreadcrumbs) {
 var exports = {};
 
 exports.GitRepositoryExplorer = (function() {
@@ -44,10 +44,8 @@ exports.GitRepositoryExplorer = (function() {
 		this.registry.getService("orion.page.message").setProgressResult(display);
 		
 		if (error.status === 404) {
-			if (error.status === 404) {
-				this.initTitleBar();
-				this.displayRepositories();
-			}
+			this.initTitleBar();
+			this.displayRepositories();
 		}
 	};
 	
@@ -148,12 +146,9 @@ exports.GitRepositoryExplorer = (function() {
 	
 	GitRepositoryExplorer.prototype.initTitleBar = function(repository, sectionName){
 		var that = this;
-		var pageTitle = dojo.byId("pageTitle");
 		var item = {};
 		
 		if (repository && sectionName){
-			pageTitle.innerHTML = "Git Repository (" + sectionName + ")";
-			
 			item.Name = sectionName;
 			item.Parents = [];
 			item.Parents[0] = {};
@@ -163,16 +158,12 @@ exports.GitRepositoryExplorer = (function() {
 			item.Parents[1] = {};
 			item.Parents[1].Name = "Repositories";
 		} else if (repository) {
-			pageTitle.innerHTML = "Git Repository";
-			
 			item.Name = repository.Name;
 			item.Parents = [];
 			item.Parents[0] = {};
 			item.Parents[0].Name = "Repositories";
 		} else {
-			pageTitle.innerHTML = "Git Repositories";
-			
-			item.Name = "";
+			item.Name = "Repositories";
 		}
 		
 		var location = dojo.byId("location");
@@ -180,7 +171,6 @@ exports.GitRepositoryExplorer = (function() {
 			container: location,
 			resource: item,
 			makeHref:function(seg, location){
-				console.info(seg + " " + location);
 				that.makeHref(seg, location);
 			}
 		});		
@@ -228,19 +218,18 @@ exports.GitRepositoryExplorer = (function() {
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "repositoryHeader", "class":"pluginTitle", innerHTML: (mode === "full" ? "Repositories" : "Repository") };
 		dojo.create( "div", item, titleWrapper );
-		var subItem = { id: "branchSubHeader", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#\">See all repositories</a>")};
-		dojo.create( "div", subItem, tableNode );
+//		var subItem = { id: "repositorySubHeader", "class":"pluginSubTitle", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#\">See all repositories</a>")};
+//		dojo.create( "div", subItem, tableNode );
 		
-
 		if (!repositories){
 			dojo.byId("repositoryHeader").innerHTML = (mode === "full" ? "No Repositories" : "Repository Not Found");
 			if (mode === "full")
-				dojo.empty("branchSubHeader");
+				dojo.empty("repositorySubHeader");
 			return;
 		}
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="repositoryNode" class="plugin-settings-list"></list>' +
 				'</div>' +
@@ -251,23 +240,23 @@ exports.GitRepositoryExplorer = (function() {
 		this.decorateRepositories(repositories).then(
 			function(){
 				for(var i=0; i<repositories.length;i++){
-					that.renderRepository(repositories[i], links);
+					that.renderRepository(repositories[i], links, i);
 				}
 			}
 		);
 	};
 	
-	GitRepositoryExplorer.prototype.renderRepository = function(repository, links){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("repositoryNode") );
+	GitRepositoryExplorer.prototype.renderRepository = function(repository, links, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, dojo.byId("repositoryNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite git-sprite-repository" }, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite git-sprite-repository" }, horizontalBox );
 		
 		var detailsView = dojo.create( "div", { "class":"stretch" }, horizontalBox );
 		var title = dojo.create( "span", { "class":"plugin-title"}, detailsView );
 		
 		if (links){
-			link = dojo.create("a", {className: "navlinkonpage", href: "/git/git-repository.html#" + repository.Location}, title);
+			link = dojo.create("a", {"class": "navlinkonpage", href: "/git/git-repository.html#" + repository.Location}, title);
 			dojo.place(document.createTextNode(repository.Name), link);
 		} else {
 			dojo.place(document.createTextNode(repository.Name), title);
@@ -279,7 +268,7 @@ exports.GitRepositoryExplorer = (function() {
 		dojo.create( "div", null, detailsView );
 		var description = dojo.create( "span", { "class":"plugin-description", innerHTML: "location: " + repository.Content.Path }, detailsView );
 		
-		var actionsArea = dojo.create( "div", {"id":"repositoryActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"repositoryActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", repository, this, "button", false);
 	};
 	
@@ -297,7 +286,7 @@ exports.GitRepositoryExplorer = (function() {
 		dojo.create( "div", item, titleWrapper );
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="workingDirectoryNode" class="plugin-settings-list"></list>' +
 				'</div>' +
@@ -316,7 +305,7 @@ exports.GitRepositoryExplorer = (function() {
 	};
 		
 	GitRepositoryExplorer.prototype.renderStatus = function(repository, status){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("workingDirectoryNode") );
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item" }, dojo.byId("workingDirectoryNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
 		var unstaged = status.Untracked.length + status.Conflicting.length + status.Modified.length;
@@ -334,7 +323,7 @@ exports.GitRepositoryExplorer = (function() {
 			innerHTML: unstaged + " file(s) to stage and "
 			+ staged + " file(s) to commit."}, detailsView );
 				
-		var actionsArea = dojo.create( "div", {"id":"statusActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"statusActionsArea", "class":"git-action-area"}, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", repository, this, "button", false);	
 	};
 	
@@ -369,15 +358,16 @@ exports.GitRepositoryExplorer = (function() {
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "branchHeader", "class":"pluginTitle", innerHTML: "Branches" };
 		dojo.create( "div", item, titleWrapper );
+		dojo.create( "div", { id: "branchSectionProgress", "class": "sectionProgress", innerHTML: "..."}, titleWrapper );
 		dojo.create( "div", { id: "branchSectionActionsArea", "class":"additions-light"}, titleWrapper );
-		var subItem = { id: "branchSubHeader", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#" + branchLocation + "\">See all branches</a></h2>")};
+		var subItem = { id: "branchSubHeader", "class":"pluginSubTitle", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#" + branchLocation + "\">See all branches</a></h2>")};
 		dojo.create( "div", subItem, tableNode );
 		
 		this.registry.getService("orion.page.command").registerCommandContribution("eclipse.addBranch", 2000, "branchSectionActionsArea");
 		this.registry.getService("orion.page.command").renderCommands(dojo.byId("branchSectionActionsArea"), "dom", repository, this, "tool", false);
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="branchNode" class="plugin-settings-list"></list>' +
 				'</div>' +
@@ -385,15 +375,13 @@ exports.GitRepositoryExplorer = (function() {
 		
 		dojo.place( content, tableNode );
 		
-		dojo.byId("branchNode").innerHTML = "Loading...";
-		
 		this.registry.getService("orion.git.provider").getGitBranch(branchLocation + (mode === "full" ? "?commits=1" : "?commits=1&page=1&pageSize=5")).then(
 			function(resp){
 				var branches = resp.Children;
-				dojo.empty("branchNode");
+				dojo.style(dojo.byId("branchSectionProgress"), "visibility", "hidden");
 				for(var i=0; i<branches.length;i++){
 					branches[i].ParentLocation = branchLocation;
-					that.renderBranch(branches[i]);
+					that.renderBranch(branches[i], i);
 				}
 			}, function(error){
 				dojo.hitch(that, that.handleError)(error);
@@ -401,11 +389,11 @@ exports.GitRepositoryExplorer = (function() {
 		);
 	};
 		
-	GitRepositoryExplorer.prototype.renderBranch = function(branch){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("branchNode") );
+	GitRepositoryExplorer.prototype.renderBranch = function(branch, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow")  }, dojo.byId("branchNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite git-sprite-branch" }, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite git-sprite-branch" }, horizontalBox );
 		
 		var detailsView = dojo.create( "div", { "class":"stretch"}, horizontalBox );
 		var title = dojo.create( "span", { "class":"plugin-title", innerHTML: branch.Name + (branch.Current ? " (Active)" : "") }, detailsView );
@@ -417,7 +405,7 @@ exports.GitRepositoryExplorer = (function() {
 			+ "last modified " + dojo.date.locale.format(new Date(commit.Time), {formatLength: "short"})
 			+ " by " + commit.AuthorName}, detailsView );
 		
-		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", branch, this, "button", false);	
 	};
 	
@@ -433,22 +421,21 @@ exports.GitRepositoryExplorer = (function() {
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "remoteBranchHeader", "class":"pluginTitle", innerHTML: "Remote Branches" };
 		dojo.create( "div", item, titleWrapper );
+		dojo.create( "div", { id: "remoteBranchSectionProgress", "class": "sectionProgress", innerHTML: "..."}, titleWrapper );
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="remoteBranchNode" class="plugin-settings-list"></list>' +
 				'</div>' +
 			'</div>';
 		
 		dojo.place( content, tableNode );
-		
-		dojo.byId("remoteBranchNode").innerHTML = "Loading...";
 
 		this.registry.getService("orion.git.provider").getGitRemote(remoteLocation).then(
 			function(resp){
 				var remotes = resp.Children;
-				dojo.empty("remoteBranchNode");
+				dojo.style(dojo.byId("remoteBranchSectionProgress"), "visibility", "hidden");
 				
 				if (remotes.length === 0){
 					dojo.byId("remoteBranchHeader").innerHTML = "No Remote Branches";
@@ -462,7 +449,7 @@ exports.GitRepositoryExplorer = (function() {
 		);
 	};
 	
-	GitRepositoryExplorer.prototype.displayRemoteBranches2 = function(remotes, repository, deferred){
+	GitRepositoryExplorer.prototype.displayRemoteBranches2 = function(remotes, repository, deferred, anyRemoteBranch){
 		var that = this;
 		if (deferred == null)
 			deferred = new dojo.Deferred();
@@ -473,25 +460,29 @@ exports.GitRepositoryExplorer = (function() {
 					var remoteBranches = resp.Children;
 					for(var i=0; (i<remoteBranches.length);i++){
 						remoteBranches[i].Repository = repository;
-						that.renderRemoteBranch(remoteBranches[i]);
+						that.renderRemoteBranch(remoteBranches[i], i);
 					}
-					that.displayRemoteBranches2(remotes.slice(1), repository, deferred);
+					that.displayRemoteBranches2(remotes.slice(1), repository, deferred, (anyRemoteBranch || (remoteBranches.length > 0)));
 				}, function () {
 					
 				}
 			);
 		} else {
+			if (!anyRemoteBranch){
+				dojo.style(dojo.byId("remoteBranchSectionProgress"), "visibility", "hidden");
+				dojo.byId("remoteBranchHeader").innerHTML = "No Remote Branches";
+			}
 			deferred.callback();
 		}
 		
 		return deferred;
 	};
 			
-	GitRepositoryExplorer.prototype.renderRemoteBranch = function(remoteBranch){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("remoteBranchNode") );
+	GitRepositoryExplorer.prototype.renderRemoteBranch = function(remoteBranch, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, dojo.byId("remoteBranchNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite git-sprite-branch" }, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite git-sprite-branch" }, horizontalBox );
 		
 		var detailsView = dojo.create( "div", { "class":"vbox stretch details-view"}, horizontalBox );
 		var title = dojo.create( "span", { "class":"plugin-title", innerHTML: remoteBranch.Name }, detailsView );
@@ -501,7 +492,7 @@ exports.GitRepositoryExplorer = (function() {
 //			+ ", last modified " + dojo.date.locale.format(new Date(branch.Commit.Time), {formatLength: "short"})
 //			+ " by " + branch.Commit.AuthorName}, detailsView );
 		
-		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", remoteBranch, this, "button", false);	
 	};
 
@@ -515,20 +506,19 @@ exports.GitRepositoryExplorer = (function() {
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "commitHeader", "class":"pluginTitle", innerHTML: "Commits" };
 		dojo.create( "div", item, titleWrapper );
+		dojo.create( "div", { id: "commitSectionProgress", "class": "sectionProgress", innerHTML: "..."}, titleWrapper );
 		dojo.create( "div", { id: "commitSectionActionsArea", "class":"additions-light"}, titleWrapper );
-		var subItem = { id: "commitSubHeader"};
+		var subItem = { id: "commitSubHeader", "class":"pluginSubTitle"};
 		dojo.create( "div", subItem, tableNode );
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="commitNode" class="plugin-settings-list"></list>' +
 				'</div>' +
 			'</div>';
 		
 		dojo.place( content, tableNode );
-		
-		dojo.byId("commitNode").innerHTML = "Loading...";
 
 		this.registry.getService("orion.git.provider").getGitBranch(repository.BranchLocation).then(
 			function(resp){
@@ -544,7 +534,7 @@ exports.GitRepositoryExplorer = (function() {
 				dojo.byId("commitHeader").innerHTML = "Commits for \"" + currentBranch.Name + "\" branch";
 				
 				var subHeader = dojo.byId("commitSubHeader");
-				var seeMoreLink = dojo.create("a", {className: "navlinkonpage", href: "/git/git-log.html#" + currentBranch.CommitLocation + "?page=1"}, subHeader);
+				var seeMoreLink = dojo.create("a", {"class": "navlinkonpage", href: "/git/git-log.html#" + currentBranch.CommitLocation + "?page=1"}, subHeader);
 				dojo.place(document.createTextNode("See the full log"), seeMoreLink);
 				
 				if (currentBranch.RemoteLocation[0]){
@@ -560,7 +550,7 @@ exports.GitRepositoryExplorer = (function() {
 				
 				
 				if (currentBranch.RemoteLocation[0] == null){
-					dojo.empty("commitNode");
+					dojo.style(dojo.byId("commitSectionProgress"), "visibility", "hidden");
 					that.renderNoCommit();
 					return;
 				};
@@ -568,35 +558,48 @@ exports.GitRepositoryExplorer = (function() {
 				if (currentBranch.RemoteLocation[0].Children[0].CommitLocation){
 					that.registry.getService("orion.git.provider").getLog(currentBranch.RemoteLocation[0].Children[0].CommitLocation + "?page=1&pageSize=20", "HEAD", "",
 						function(resp){
-							dojo.empty("commitNode");
+							dojo.style(dojo.byId("commitSectionProgress"), "visibility", "hidden");
 							
-							var anyCommits = false;
+							var commitsCount = resp.Children.length;
 							
 							for (var i=0; i<resp.Children.length; i++){
-								anyCommits = true;
-								that.renderCommit(resp.Children[i], true);
+								that.renderCommit(resp.Children[i], true, i);
 							}
 							
 							that.registry.getService("orion.git.provider").getLog(currentBranch.CommitLocation + "?page=1&pageSize=20", currentBranch.RemoteLocation[0].Children[0].Id, "", 
 								function(resp){	
 									for (var i=0; i<resp.Children.length; i++){
-										anyCommits = true;
-										that.renderCommit(resp.Children[i], false);
+										that.renderCommit(resp.Children[i], false, i + commitsCount);
 									}
 									
-									if (!anyCommits)
+									commitsCount = commitsCount + resp.Children.length; 
+									
+									if (commitsCount == 0)
 										that.renderNoCommit();
 								}
 							);	
 						}
 					);
+				} else {
+					that.registry.getService("orion.git.provider").doGitLog(currentBranch.CommitLocation + "?page=1&pageSize=20", 
+						function(resp){	
+							dojo.style(dojo.byId("commitSectionProgress"), "visibility", "hidden");
+						
+							for (var i=0; i<resp.Children.length; i++){
+								that.renderCommit(resp.Children[i], false, i);
+							}
+							
+							if (resp.Children.length == 0)
+								that.renderNoCommit();
+						}
+					);	
 				}
 			}
 		);
 	};
 	
 	GitRepositoryExplorer.prototype.renderNoCommit = function(){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("commitNode") );
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item" }, dojo.byId("commitNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
 		var detailsView = dojo.create( "div", { "class":"stretch"}, horizontalBox );
@@ -607,38 +610,70 @@ exports.GitRepositoryExplorer = (function() {
 			innerHTML: "You have no outgoing or incoming commits."}, detailsView );	
 	};
 		
-	GitRepositoryExplorer.prototype.renderCommit = function(commit, outgoing){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("commitNode") );
+	GitRepositoryExplorer.prototype.renderCommit = function(commit, outgoing, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, dojo.byId("commitNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
 		var imgSpriteName = (outgoing ? "git-sprite-outgoing_commit" : "git-sprite-incoming_commit");
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite " + imgSpriteName, "style":"vertical-align: middle;"}, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite " + imgSpriteName}, horizontalBox );
 		
 		if (commit.AuthorImage) {
-			var authorImage = dojo.create("span", {"class":"plugin-icon"}, horizontalBox);
+			var authorImage = dojo.create("span", {"class":"git-author-icon"}, horizontalBox);
 			
 			var image = new Image();
 			image.src = commit.AuthorImage;
 			image.name = commit.AuthorName;
 			image.width = 30;
 			image.height = 30;
-			dojo.addClass(image, "gitAuthorImage");
-			
 			dojo.place(image, authorImage, "first");
 		}
 		
 		var detailsView = dojo.create( "div", { "class":"stretch"}, horizontalBox );
 		
-		titleLink = dojo.create("a", {className: "extension-plugin navlinkonpage", href: "/git/git-commit.html#" + commit.Location + "?page=1&pageSize=1"}, detailsView);
+		var titleLink = dojo.create("a", {"class": "plugin-title navlinkonpage", href: "/git/git-commit.html#" + commit.Location + "?page=1&pageSize=1"}, detailsView);
 		dojo.place(document.createTextNode(commit.Message), titleLink);		
+		
+		var tooltipDialog = new orion.git.widgets.CommitTooltipDialog({
+		    commit: commit
+		});
+		
+		var _timer;
+		
+		var tooltipDialog = new orion.git.widgets.CommitTooltipDialog({
+		    commit: commit,
+		    onMouseLeave: function(){
+		    	if(dijit.popup.hide)
+					dijit.popup.hide(tooltipDialog); //close doesn't work on FF
+				dijit.popup.close(tooltipDialog);
+            },
+            onMouseEnter: function(){
+		    	clearTimeout(_timer);
+            }
+		});
+		
+		dojo.connect(titleLink, "onmouseover", titleLink, function() {
+			dijit.popup.open({
+				popup: tooltipDialog,
+				around: titleLink,
+				orient: {'BR':'TL', 'TR':'BL'}
+			});
+		});
+		
+		dojo.connect(titleLink, "onmouseout", titleLink, function() {
+			_timer = setTimeout(function(){
+				if(dijit.popup.hide)
+					dijit.popup.hide(tooltipDialog); //close doesn't work on FF
+				dijit.popup.close(tooltipDialog);
+			}, 200);
+		});
 		
 		dojo.create( "div", null, detailsView );
 		var description = dojo.create( "span", { "class":"plugin-description", 
 			innerHTML: " (SHA " + commit.Name + ") by " + commit.AuthorName 
 			+ " on " + dojo.date.locale.format(new Date(commit.Time), {formatLength: "short"})}, detailsView );
 		
-		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"branchActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow")}, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", commit, this, "button", false);	
 	};
 
@@ -665,64 +700,19 @@ exports.GitRepositoryExplorer = (function() {
 	
 	GitRepositoryExplorer.prototype.displayTags = function(repository, mode){
 		
-		var tagLocation = repository.TagLocation;
-		
-//		var tagsSectionSkeleton = 
-//		"<div class=\"displayTable\">" + 
-//			"<section class=\"extension-settings-content\">" +
-//			"<div class=\"extension-settings\">" +
-//			"<list class=\"extension-settings-list\">" +
-//				"<div class=\"vbox extension-list-item\">" +
-//					"<div class=\"hbox\">" +
-//						"<div class=\"vbox stretch details-view\"><h1 style=\"padding-top: 4px; border-bottom: none;\">Tags" + (mode === "full" ? "" : " (5 most recent)") + "</h1></div>"+
-//						"<div id=\"tagSectionActionsArea\" class=\"pageActions\"></div>" +
-//					"</div>" +
-//				"</div>" +
-//			"</list>" +
-//			"</div>" +
-//			"</section>" +
-//			(mode === "full" ? "" : ("<h2 id=\"tagSubHeader\"><a href=\"/git/git-repository.html#" + tagLocation + "\">See all tags</a></h2>")) +
-//			"<section class=\"extension-settings-content\">" +
-//			"<div class=\"extension-settings\">" +
-//				"<list id=\"tagNode\" class=\"extension-settings-list\">" +
-//				"</list>" +
-//			"</div>" + 
-//			"</section>" + 
-//		"</div>";
-		
-//		var tagsSectionSkeleton = 
-//		"<div class=\"displayTable\">" + 
-//			"<h1>Tags" + (mode === "full" ? "" : " (5 most recent)") + "</h1>" +
-//			(mode === "full" ? "" : ("<h2 id=\"tagSubHeader\"><a href=\"/git/git-repository.html#" + tagLocation + "\">See all tags</a></h2>")) +
-//			"<section class=\"extension-settings-content\">" +
-//				"<div class=\"extension-settings\">" +
-//					"<list id=\"tagNode\" class=\"extension-settings-list\">" +
-//					"</list>" +
-//				"</div>" + 
-//			"</section>" + 
-//		"</div>";
-//		
-//		var parentNode = dojo.byId("mainNode");
-//		dojo.place(tagsSectionSkeleton, parentNode);
-//		
-//		var that = this;
-//		
-//		dojo.empty("tagNode");
-//		dojo.byId("tagNode").innerHTML = "Loading...";
-		
-		
-		
+		var tagLocation = repository.TagLocation;		
 		var that = this;
 		
 		var tableNode = dojo.byId( 'table' );
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "tagHeader", "class":"pluginTitle", innerHTML: ("Tags" + (mode === "full" ? "" : " (5 most recent)"))};
 		dojo.create( "div", item, titleWrapper );
-		var subItem = { id: "tagSubHeader", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#" + tagLocation + "\">See all tags</a>")};
+		dojo.create( "div", { id: "tagSectionProgress", "class": "sectionProgress", innerHTML: "..."}, titleWrapper );
+		var subItem = { id: "tagSubHeader", "class":"pluginSubTitle", innerHTML: (mode === "full" ? "" : "<a href=\"/git/git-repository.html#" + tagLocation + "\">See all tags</a>")};
 		dojo.create( "div", subItem, tableNode );
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="tagNode" class="plugin-settings-list"></list>' +
 				'</div>' +
@@ -730,15 +720,13 @@ exports.GitRepositoryExplorer = (function() {
 		
 		dojo.place( content, tableNode );
 		
-		dojo.byId("tagNode").innerHTML = "Loading...";
-		
 		this.registry.getService("orion.git.provider").getGitBranch(tagLocation + (mode === "full" ? "" : "?commits=1&page=1&pageSize=5")).then(
 			function(resp){
 				var tags = resp.Children.slice(0, 5);
 				if (mode === 'full')
 					tags = resp.Children;
 				
-				dojo.empty("tagNode");
+				dojo.style(dojo.byId("tagSectionProgress"), "visibility", "hidden");
 				
 				if (tags.length === 0) {
 					dojo.byId("tagHeader").innerHTML = "No Tags";
@@ -748,7 +736,7 @@ exports.GitRepositoryExplorer = (function() {
 
 				for(var i=0; i<tags.length ;i++){
 					tags[i].Repository = repository;
-					that.renderTag(tags[i]);
+					that.renderTag(tags[i], i);
 				};
 			}, function(error){
 				dojo.hitch(that, that.handleError)(error);
@@ -756,27 +744,59 @@ exports.GitRepositoryExplorer = (function() {
 		);
 	};
 			
-	GitRepositoryExplorer.prototype.renderTag = function(tag){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("tagNode") );
+	GitRepositoryExplorer.prototype.renderTag = function(tag, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, dojo.byId("tagNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite git-sprite-tag" }, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite git-sprite-tag" }, horizontalBox );
 		
 		var detailsView = dojo.create( "div", { "class":"stretch"}, horizontalBox );
 		var title = dojo.create( "span", { "class":"plugin-title", innerHTML: tag.Name }, detailsView );
 		
 		dojo.create( "div", null, detailsView );
-		var description = dojo.create( "span", { "class":"plugin-description"}, detailsView );
 		
 		if (tag.Commit){
+			var description = dojo.create( "span", { "class":"tag-description"}, detailsView );
+			
 			var commit = tag.Commit.Children[0];
-			link = dojo.create("a", {className: "navlinkonpage", href: "/git/git-commit.html#" + commit.Location + "?page=1&pageSize=1"}, description);
+			var link = dojo.create("a", {"class": "navlinkonpage", href: "/git/git-commit.html#" + commit.Location + "?page=1&pageSize=1"}, description);
 			dojo.place(document.createTextNode(commit.Message), link);	
 			dojo.place(document.createTextNode(" by " + commit.AuthorName + " on " + 
 				dojo.date.locale.format(new Date(commit.Time), {formatLength: "short"})), description, "last");
+			
+			var _timer;
+			
+			var tooltipDialog = new orion.git.widgets.CommitTooltipDialog({
+			    commit: commit,
+			    onMouseLeave: function(){
+			    	if(dijit.popup.hide)
+						dijit.popup.hide(tooltipDialog); //close doesn't work on FF
+					dijit.popup.close(tooltipDialog);
+	            },
+	            onMouseEnter: function(){
+			    	clearTimeout(_timer);
+	            }
+			});
+			
+			dojo.connect(link, "onmouseover", link, function() {
+				dijit.popup.open({
+					popup: tooltipDialog,
+					around: link,
+					orient: {'BR':'TL', 'TR':'BL'}
+				});
+			});
+			
+			dojo.connect(link, "onmouseout", link, function() {
+				_timer = setTimeout(function(){
+					if(dijit.popup.hide)
+						dijit.popup.hide(tooltipDialog); //close doesn't work on FF
+					dijit.popup.close(tooltipDialog);
+				}, 200);
+			});
+				
 		}
 
-		var actionsArea = dojo.create( "div", {"id":"tagActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"tagActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", tag, this, "button", false);	
 	};
 	
@@ -792,13 +812,14 @@ exports.GitRepositoryExplorer = (function() {
 		var titleWrapper = dojo.create( "div", {"class":"pluginwrapper"}, tableNode );	
 		var item = { id: "remoteHeader", "class":"pluginTitle", innerHTML: "Remotes" };
 		dojo.create( "div", item, titleWrapper );
+		dojo.create( "div", { id: "remoteSectionProgress", "class": "sectionProgress", innerHTML: "..."}, titleWrapper );
 		dojo.create( "div", { id: "remoteSectionActionsArea", "class":"additions-light"}, titleWrapper );
 		
 		this.registry.getService("orion.page.command").registerCommandContribution("eclipse.addRemote", 2000, "remoteSectionActionsArea");
 		this.registry.getService("orion.page.command").renderCommands(dojo.byId("remoteSectionActionsArea"), "dom", repository, this, "tool", false);
 		
 		var content =	
-			'<div class="displaytable">' +
+			'<div class="git-table">' +
 				'<div class="plugin-settings">' +
 					'<list id="remoteNode" class="plugin-settings-list"></list>' +
 				'</div>' +
@@ -806,12 +827,11 @@ exports.GitRepositoryExplorer = (function() {
 		
 		dojo.place( content, tableNode );
 		
-		dojo.byId("remoteNode").innerHTML = "Loading...";
-		
 		this.registry.getService("orion.git.provider").getGitRemote(remoteLocation).then(
 			function(resp){
 				var remotes = resp.Children;
-				dojo.empty("remoteNode");
+				
+				dojo.style(dojo.byId("remoteSectionProgress"), "visibility", "hidden");
 				
 				if (remotes.length === 0){
 					dojo.byId("remoteHeader").innerHTML = "No Remotes";
@@ -819,7 +839,7 @@ exports.GitRepositoryExplorer = (function() {
 				}
 				
 				for(var i=0; i<remotes.length ;i++){
-					that.renderRemote(remotes[i]);
+					that.renderRemote(remotes[i], i);
 				};
 			}, function(error){
 				dojo.hitch(that, that.handleError)(error);
@@ -827,11 +847,11 @@ exports.GitRepositoryExplorer = (function() {
 		);
 	};
 	
-	GitRepositoryExplorer.prototype.renderRemote = function(remote){
-		var extensionListItem = dojo.create( "div", { "class":"plugin-list-item" }, dojo.byId("remoteNode") );
+	GitRepositoryExplorer.prototype.renderRemote = function(remote, index){
+		var extensionListItem = dojo.create( "div", { "class":"git-list-item " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow")  }, dojo.byId("remoteNode") );
 		var horizontalBox = dojo.create( "div", null, extensionListItem );
 		
-		dojo.create( "span", { "class":"plugin-icon gitImageSprite git-sprite-remote" }, horizontalBox );
+		dojo.create( "span", { "class":"git-decor-icon gitImageSprite git-sprite-remote" }, horizontalBox );
 		
 		var detailsView = dojo.create( "div", { "class":"stretch"}, horizontalBox );
 		var title = dojo.create( "span", { "class":"plugin-title", innerHTML: remote.Name }, detailsView );
@@ -839,7 +859,7 @@ exports.GitRepositoryExplorer = (function() {
 		dojo.create( "div", null, detailsView );
 		var description = dojo.create( "span", { "class":"plugin-description", innerHTML: remote.GitUrl}, detailsView );
 
-		var actionsArea = dojo.create( "div", {"id":"remoteActionsArea", "class":"plugin-action-area"}, horizontalBox );
+		var actionsArea = dojo.create( "div", {"id":"remoteActionsArea", "class":"git-action-area " + ((index % 2) ? "darkTreeTableRow" : "lightTreeTableRow") }, horizontalBox );
 		this.registry.getService("orion.page.command").renderCommands(actionsArea, "object", remote, this, "button", false);	
 
 	};
