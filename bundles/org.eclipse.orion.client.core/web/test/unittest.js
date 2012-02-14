@@ -9,7 +9,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
- /*global eclipse:true dojo document console define*/
+ /*global eclipse:true dojo document console define window*/
 
 
 define(['require', 'dojo', 'orion/serviceregistry', 'orion/pluginregistry', 'orion/bootstrap', 'orion/commands', 
@@ -78,6 +78,13 @@ UnitTestRenderer.prototype = {
 			div = dojo.create("div", null, col, "only");
 			dojo.create("img", {src: item.result?require.toUrl("images/unit_test/testok.gif"):require.toUrl("images/unit_test/testfail.gif")}, div, "first");
 			dojo.place(document.createTextNode(item.Name + " (" + (item.millis / 1000) + "s)"), div, "last");
+			
+			// create a link to rerun the test:
+			var browserURL = window.location.toString();
+			var testlink = browserURL.split('&')[0]+"&" + encodeURIComponent(item.Name);
+			var weblink = dojo.create("a", {className: "navlink", href: testlink}, div, "last");
+			dojo.place(document.createTextNode("  rerun"),weblink,"last");			
+			
 			if (!item.result && !item.logged) {
 				console.log("[FAILURE][" + item.Name + "][" + item.message + "]\n" + ((item.stack !== undefined && item.stack) ? item.stack : ""));
 				item.logged =true;
@@ -104,8 +111,10 @@ dojo.addOnLoad(function() {
 		// global banner
 		mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher);
 		
-		function runTests(fileURI) {
-			//console.log("installing non-persistent plugin: " + fileURI);
+		function runTests(url) {
+			var fileURIandPossibleTestName = url.split("&");
+			var fileURI=fileURIandPossibleTestName[0];
+			// console.log("installing non-persistent plugin: " + fileURI);
 			var testOverview = dojo.byId("test-overview");
 			dojo.empty(testOverview);
 			var testTree = dojo.byId("test-tree");
@@ -171,9 +180,16 @@ dojo.addOnLoad(function() {
 					root.children.push({"Name":name, result: obj.result, message: obj.message, stack: obj.stack, millis: millis});
 					myTree.refresh(root, root.children);
 				});	
-				service.run().then(function(result) {
-					testPluginRegistry.shutdown();
-				});
+				if (fileURIandPossibleTestName.length===1) {
+					service.run().then(function(result) {
+						testPluginRegistry.shutdown();
+					});
+				} else {
+					var testname = decodeURIComponent(fileURIandPossibleTestName[1]);
+					service.run(testname).then(function(result) {
+						testPluginRegistry.shutdown();
+					});
+				}
 			}, function(error) {
 				dojo.create("img", {src: require.toUrl("images/unit_test/testfail.gif")}, testTree, "first");
 				dojo.place(document.createTextNode(error), testTree, "last");
