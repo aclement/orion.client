@@ -81,16 +81,16 @@ UnitTestRenderer.prototype = {
 			div = dojo.create("div", null, col, "only");
 			dojo.create("img", {src: item.result?require.toUrl("images/unit_test/testok.gif"):require.toUrl("images/unit_test/testfail.gif")}, div, "first");
 			dojo.place(document.createTextNode(item.Name + " (" + (item.millis / 1000) + "s)"), div, "last");
-			 var browserURL = window.location.toString();
-                var testlink = browserURL.split('#')[0]+"#";
+			var browserURL = window.location.toString();
 
 			// create a link to rerun the test:
+			var testlink = browserURL.split('#')[0]+"#";
 			var testfile = mPageUtil.matchResourceParameters(window.location.toString()).resource;
 			var hreflink = new URITemplate(testlink+"{+resource,params*}").expand({resource: testfile, params: {"test":item.Name}});
 			var button = new dijit.form.Button({
 				label: "rerun",
 					onClick: function(){
-						window.location = hreflink;
+						window.location.href = hreflink;
 						window.location.reload(true);
 					}
 			});
