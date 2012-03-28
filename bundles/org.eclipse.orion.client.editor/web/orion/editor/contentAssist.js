@@ -14,6 +14,25 @@
 
 define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/textview/keyBinding', 'orion/textview/eventTarget'], function(messages, mKeyBinding, mEventTarget) {
 
+	var Promise = (function() {
+		function Promise() {
+		}
+		Promise.prototype.then = function(callback) {
+			this.callback = callback;
+			if (this.result) {
+				var promise = this;
+				setTimeout(function() { promise.callback(promise.result); }, 0);
+			}
+		};
+		Promise.prototype.done = function(result) {
+			this.result = result;
+			if (this.callback) {
+				this.callback(this.result);
+			}
+		};
+		return Promise;
+	}());
+
 	/**
 	 * @name orion.editor.ContentAssist
 	 * @class A key mode for {@link orion.editor.Editor} that displays content assist suggestions.
@@ -36,12 +55,9 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 	function ContentAssist(editor, contentAssistId) {
 		this.editor = editor;
 		this.textView = editor.getTextView();
-		this.contentAssistPanel = document.getElementById(contentAssistId);
+		this.contentAssistPanel = typeof contentAssistId === "string" ? document.getElementById(contentAssistId) : contentAssistId;
 		this.active = false;
-		this.prefix = "";
-		
-		this.filteredProviders = [];
-		
+		this.providers = [];
 		this.proposals = [];
 		var self = this;
 		this.contentAssistListener = {
@@ -52,12 +68,21 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 				if (self.ignoreNextChange) {
 					self.cancel();
 				} else {
-					self.showContentAssist(true, event);
+					// Start waiting for selection
+					self.expectingSelection = event;
 				}
 				self.ignoreNextChange = false;
 			},
 			onScroll: function(event) {
 				self.cancel();
+			},
+			onSelection: function(event) {
+				if (self.expectingSelection) {
+					self.showContentAssist(true);
+				} else {
+					self.cancel();
+				}
+				self.expectingSelection = false;
 			},
 			onMouseUp: function(event) {
 				// ignore the event if this is a click inside of the contentAssistPanel
@@ -137,10 +162,12 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 			}
 			this.ignoreNextChange = true;
 			this.cancel();
+
+			var offset = this.textView.getCaretOffset();
 			var data = {
 				proposal: proposal,
-				start: this.textView.getCaretOffset() - this.prefix.length,
-				end: this.textView.getCaretOffset()
+				start: offset,
+				end: offset
 			};
 			this.dispatchEvent({type: "accept", data: data });
 			return true;
@@ -195,9 +222,8 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 		},
 		/**
 		 * @param {Boolean} enable
-		 * @param {orion.textview.ModelChangedEvent} [event]
 		 */
-		showContentAssist: function(enable, event) {
+		showContentAssist: function(enable) {
 			if (!this.contentAssistPanel) {
 				return;
 			}
@@ -208,68 +234,27 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 				if (this.listenerAdded) {
 					this.textView.removeEventListener("ModelChanging", this.contentAssistListener.onModelChanging);
 					this.textView.removeEventListener("ModelChanged", this.contentAssistListener.onModelChanged);
-					this.textView.removeEventListener("Scroll", this.contentAssistListener.onScroll);
 					this.textView.removeEventListener("MouseUp", this.contentAssistListener.onMouseUp);
+					this.textView.removeEventListener("Selection", this.contentAssistListener.onSelection);
+					this.textView.removeEventListener("Scroll", this.contentAssistListener.onScroll);
 					this.listenerAdded = false;
 				}
 				this.active = false;
 				this.contentAssistPanel.style.display = "none";
 				this.contentAssistPanel.onclick = null;
 			} else {
-				var offset = event ? (event.start + event.addedCharCount) : this.textView.getCaretOffset();
-				var index = offset;
-				var c;
-				while (index > 0 && ((97 <= (c = this.textView.getText(index - 1, index).charCodeAt(0)) && c <= 122) || (65 <= c && c <= 90) || c === 95 || (48 <= c && c <= 57))) { //LETTER OR UNDERSCORE OR NUMBER
-					index--;
-				}
-				
-				// Show all proposals
-//				if (index === offset) {
-//					return;
-//				}
-				this.prefix = this.textView.getText(index, offset);
-				
-				var buffer = this.textView.getText(),
-				    selection = this.textView.getSelection();
-
-				/**
-				 * Bug/feature: The selection returned by the textView doesn't seem to be updated before notifying the listeners
-				 * of onModelChanged. If content assist is triggered by Ctrl+Space, the start/end position of the selection
-				 * (i.e. the caret position) is correct. But if the user then starts to type some text (in order to filter the
-				 * the completion proposals list by a prefix) - i.e. onModelChanged listeners are notified and, in turn,
-				 * this method - the selection is not up-to-date. Because of that, I just did a simple hack of adding the offset
-				 * field for selection, which is computed above and is always correct. The selection is passed to the content
-				 * assist providers.
-				 */
-				selection.offset = offset;
-
-				/**
-				 * Each element of the keywords array returned by content assist providers may be either:
-				 * - String: a simple string proposal
-				 * - Object: must have a property "proposal" giving the proposal string. May also have other fields, which 
-				 * can trigger linked mode behavior in the editor.
-				 */
-				this.getKeywords(this.prefix, buffer, selection).then(
-					function(keywords) {
-						this.proposals = [];
-						for (var i = 0; i < keywords.length; i++) {
-							var proposal = keywords[i];
-							if (proposal === null || proposal === undefined) {
-								continue;
-							}
-							if (this.matchesPrefix(proposal) || this.matchesPrefix(proposal.proposal)) {
-								this.proposals.push(proposal);
-							}
-						}
+				var offset = this.textView.getCaretOffset();
+				this.getProposals(offset).then(
+					function(proposals) {
+						this.proposals = proposals;
 						if (this.proposals.length === 0) {
 							this.cancel();
 							return;
 						}
-						
 						var caretLocation = this.textView.getLocationAtOffset(offset);
 						caretLocation.y += this.textView.getLineHeight();
 						this.contentAssistPanel.innerHTML = "";
-						for (i = 0; i < this.proposals.length; i++) {
+						for (var i = 0; i < this.proposals.length; i++) {
 							this.createDiv(this.getDisplayString(this.proposals[i]), i===0, this.contentAssistPanel);
 						}
 						this.textView.convert(caretLocation, "document", "page");
@@ -292,14 +277,23 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 						if (!this.listenerAdded) {
 							this.textView.addEventListener("ModelChanging", this.contentAssistListener.onModelChanging);
 							this.textView.addEventListener("ModelChanged", this.contentAssistListener.onModelChanged);
-							this.textView.addEventListener("Scroll", this.contentAssistListener.onScroll);
 							this.textView.addEventListener("MouseUp", this.contentAssistListener.onMouseUp);
+							this.textView.addEventListener("Selection", this.contentAssistListener.onSelection);
+							this.textView.addEventListener("Scroll", this.contentAssistListener.onScroll);
 						}
 						this.listenerAdded = true;
 						this.contentAssistPanel.onclick = this.click.bind(this);
 						this.active = true;
 					}.bind(this));
 			}
+		},
+		/** @private */
+		getPrefixStart: function(end) {
+			var index = end, c;
+			while (index > 0 && ((97 <= (c = this.textView.getText(index - 1, index).charCodeAt(0)) && c <= 122) || (65 <= c && c <= 90) || c === 95 || (48 <= c && c <= 57))) { //LETTER OR UNDERSCORE OR NUMBER
+				index--;
+			}
+			return index;
 		},
 		/** @private */
 		createDiv: function(proposal, isSelected, parent) {
@@ -324,76 +318,57 @@ define("orion/editor/contentAssist", ['i18n!orion/editor/nls/messages', 'orion/t
 			//by default return the straight proposal text
 			return proposal.proposal;
 		},
-		/** @private */
-		matchesPrefix: function(str) {
-			return typeof str === "string" && str.substr(0, this.prefix.length) === this.prefix;
-		},
 		/**
-		 * @param {String} prefix A prefix against which content assist proposals should be evaluated.
-		 * @param {String} buffer The entire buffer being edited.
-		 * @param {orion.textview.Selection} selection The current selection from the Editor.
-		 * @returns {Object} A promise that will provide the keywords.
+		 * @param {String} offset The caret offset.
+		 * @returns {Object} A promise that will provide the proposals.
 		 */
-		getKeywords: function(prefix, buffer, selection) {
-			var keywords = [],
+		getProposals: function(offset) {
+			var proposals = [],
 			    numComplete = 0,
-			    promise = new this.Promise(),
-			    filteredProviders = this.filteredProviders;
-			function collectKeywords(result) {
+			    promise = new Promise(),
+			    providers = this.providers;
+			function collectProposals(result) {
 				if (result) {
-					keywords = keywords.concat(result);
+					proposals = proposals.concat(result);
 				}
-				if (++numComplete === filteredProviders.length) {
-					promise.done(keywords);
+				if (++numComplete === providers.length) {
+					promise.done(proposals);
 				}
 			}
 			function errback() {
-				if (++numComplete === filteredProviders.length) {
-					promise.done(keywords);
+				if (++numComplete === providers.length) {
+					promise.done(proposals);
 				}
 			}
-			
-			for (var i=0; i < filteredProviders.length; i++) {
-				var provider = filteredProviders[i];
-				//prefer computeProposals but support getKeywords for backwards compatibility
-				var proposalsFunc = provider.getKeywords;
+			var textView = this.textView, textModel = textView.getModel();
+			var buffer = textView.getText();
+			var context = {
+				line: textModel.getLine(textModel.getLineAtOffset(offset)),
+				prefix: textView.getText(this.getPrefixStart(offset), offset),
+				selection: textView.getSelection()
+			};
+			for (var i=0; i < providers.length; i++) {
+				var provider = providers[i];
+				//prefer computeProposals but support getProposals for backwards compatibility
+				var proposalsFunc = provider.getProposals;
 				if (typeof provider.computeProposals === "function") {
 					proposalsFunc = provider.computeProposals;
 				}
-				var keywordsPromise = proposalsFunc.apply(provider, [prefix, buffer, selection]);
-				if (keywordsPromise && keywordsPromise.then) {
-					keywordsPromise.then(collectKeywords, errback);
+				var proposalsPromise = proposalsFunc.apply(provider, [buffer, offset, context]);
+				if (proposalsPromise && proposalsPromise.then) {
+					proposalsPromise.then(collectProposals, errback);
 				} else {
-					collectKeywords(keywordsPromise);
+					collectProposals(proposalsPromise);
 				}
 			}
 			return promise;
 		},
-		/** @private */
-		Promise: (function() {
-			function Promise() {
-			}
-			Promise.prototype.then = function(callback) {
-				this.callback = callback;
-				if (this.result) {
-					var promise = this;
-					setTimeout(function() { promise.callback(promise.result); }, 0);
-				}
-			};
-			Promise.prototype.done = function(result) {
-				this.result = result;
-				if (this.callback) {
-					this.callback(this.result);
-				}
-			};
-			return Promise;
-		}()),
 		/**
 		 * Sets the content assist providers that we will consult to obtain proposals.
-		 * @param {Object[]} providers The providers. See {@link orion.contentAssist.CssContentAssistProvider} for an example.
+		 * @param {Object[]} providers The providers.
 		 */
 		setProviders: function(providers) {
-			this.filteredProviders = providers;
+			this.providers = providers.slice(0);
 		}
 	};
 	mEventTarget.EventTarget.addMixin(ContentAssist.prototype);

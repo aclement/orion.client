@@ -1,6 +1,6 @@
 /******************************************************************************* 
  * @license
- * Copyright (c) 2011 IBM Corporation and others.
+ * Copyright (c) 2011, 2012 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials are made 
  * available under the terms of the Eclipse Public License v1.0 
  * (http://www.eclipse.org/legal/epl-v10.html), and the Eclipse Distribution 
@@ -12,8 +12,8 @@
 /*jslint laxbreak:true regexp:false*/
 /*global define eclipse */
 
-define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMateStyler", "./testGrammars"],
-		function(dojo, assert, mTextView, mTextMateStyler, mTestGrammars) {
+define(["dojo", "orion/assert", "../mockTextView", "orion/editor/textMateStyler", "./testGrammars"],
+		function(dojo, assert, mMockTextView, mTextMateStyler, mTestGrammars) {
 	var tests = {};
 	
 	// TODO: run tests with both Windows and Linux delimiters since a few cases have failed with
@@ -26,8 +26,9 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	 */
 	function makeTest(testBody, doTearDown) {
 		function createTextView() {
-			var options = {parent: "editorDiv", readonly: true, stylesheet: ["test-textMateStyler.css"], sync: true};
-			return new mTextView.TextView(options);
+			var options = {parent: "editorDiv", readonly: true};
+			//return new mTextView.TextView(options);
+			return new mMockTextView.MockTextView(options);
 		}
 		
 		/** Called after each test to remove view from DOM */
@@ -73,7 +74,8 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		for (var i=0; i < a.length; i++) {
 			var item = a[i];
 			var j = b.indexOf(item);
-			if (j === -1 || (sameOrder && i !== j)) { return false; }		}
+			if (j === -1 || (sameOrder && i !== j)) { return false; }
+		}
 		return true;
 	}
 	
@@ -141,7 +143,6 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	
 	/**
 	 * Fails if the currently-displayed styles for the line at <tt>lineIndex</tt> don't match the expected <tt>scopeRegions</tt>.
-	 * WARNING: uses internal methods of TextView, may break
 	 * @param {Array} scopeRegions Each element of scopeRegions is an Array with the elements:
 	 *   [0] {Number} start Line-relative index
 	 *   [1] {Number} end Line-relative index
@@ -150,24 +151,22 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	 */
 	function assertLineScope(view, styler, lineIndex, scopeRegions) {
 		var lineStart = view.getModel().getLineStart(lineIndex);
-		var lineNode = view._getLineNode(lineIndex),
-		    spans = lineNode.childNodes,
-		    charNum = 0,
-		    styleRanges = [];
-		for (var i=0; i < spans.length; i++) {
-			var child = spans[i];
-			var ignoreChars = typeof child.ignoreChars === "number" ? child.ignoreChars : 0;
-			var length = child.textContent.length - ignoreChars;
-			var styleClass = child.className;
-			if (length > 0 /*omit ignored*/ && styleClass !== "" /*omit unstyled*/) {
-				styleRanges.push({
-					start: lineStart + charNum,
-					end: lineStart + charNum + length,
-					style: { styleClass: styleClass }
-				});
-			}
-			charNum += length;
-		}
+		var lineStyle = view._getLineStyle(lineIndex);
+		var styleRanges = (lineStyle && lineStyle.ranges) || [];
+//		for (var i=0; i < ranges.length; i++) {
+//			var child = ranges[i];
+//			var ignoreChars = typeof child.ignoreChars === "number" ? child.ignoreChars : 0;
+//			var length = child.textContent.length - ignoreChars;
+//			var styleClass = child.className;
+//			if (length > 0 /*omit ignored*/ && styleClass !== "" /*omit unstyled*/) {
+//				styleRanges.push({
+//					start: lineStart + charNum,
+//					end: lineStart + charNum + length,
+//					style: { styleClass: styleClass }
+//				});
+//			}
+//			charNum += length;
+//		}
 		assertStylesMatchScopes(view, styler, lineIndex, styleRanges, scopeRegions);
 	}
 	
@@ -194,7 +193,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	// Test supporting util methods
 	
 	// "Extended" regex syntax with whitespace and comments.
-	tests["test TextMateStyler - Util.toRegex() - (?x)X and (?x:X)"] = function() {
+	tests["test: Util.toRegex() - (?x)X and (?x:X)"] = function() {
 		var regex1 = mTextMateStyler.RegexUtil.toRegExp("", false);
 		assert.equal(regex1.source, "");
 		
@@ -236,7 +235,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		assert.equal(regex11.ignoreCase, true);
 	};
 	
-	tests["test TextMateStyler - Util.groupify()"] = function() {
+	tests["test: Util.groupify()"] = function() {
 		var result1 = mTextMateStyler.RegexUtil.groupify(new RegExp("")),
 		    regex1 = result1[0];
 		assert.equal(regex1.source, "");
@@ -354,7 +353,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	// ************************************************************************************************
 	// Test creation
 	
-	tests["test TextMateStyler - create"] = makeTest(function(view) {
+	tests["test: create"] = makeTest(function(view) {
 		try {
 			var styler = makeStyler(view, mTestGrammars.SampleGrammar);
 			assert.ok(true, "true is false");
@@ -366,19 +365,18 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	// ************************************************************************************************
 	// Test initial styling of buffer
 	
-	tests["test TextMateStyler - initial - style one line"] = makeTest(function(view) {
+	tests["test: initial - style one line"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleGrammar);
 		view.setText("fizzer");
 		
-		// expect fi[z][z]er
+		// expect fi[zz]er
 		var invalidScopeName = mTestGrammars.SampleGrammar.repository.badZ.name;
 		assertLineScope(view, styler, 0, [
-				[2, 3, invalidScopeName], // z
-				[3, 4, invalidScopeName]  // z
+				[2, 4, invalidScopeName] // z
 			]);
 	});
 	
-	tests["test TextMateStyler - initial - style multiple lines"] = makeTest(function(view) {
+	tests["test: initial - style multiple lines"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleGrammar);
 		var line0Text = "no_important_stuff_here",
 		    line1Text = "    this    var    &&";
@@ -393,7 +391,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// test begin/end on single input line
-	tests["test TextMateStyler - initial - begin/end single line - subrule"] = makeTest(function(view) {
+	tests["test: initial - begin/end single line - subrule"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		
@@ -409,7 +407,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - initial - begin/end 1 line - subrule exited"] = makeTest(function(view) {
+	tests["test: initial - begin/end 1 line - subrule exited"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		
@@ -426,7 +424,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - initial - begin/end single line - name"] = makeTest(function(view) {
+	tests["test: initial - begin/end single line - name"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		
@@ -440,7 +438,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - initial - begin/end 2 lines - just delimiters"] = makeTest(function(view) {
+	tests["test: initial - begin/end 2 lines - just delimiters"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -453,7 +451,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	
-	tests["test TextMateStyler - initial - begin/end 2 lines - with content"] = makeTest(function(view) {
+	tests["test: initial - begin/end 2 lines - with content"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -471,7 +469,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 
-	tests["test TextMateStyler - initial - begin/end 3 lines - with leading/trailing content"] = makeTest(function(view) {
+	tests["test: initial - begin/end 3 lines - with leading/trailing content"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -493,7 +491,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - initial - b/e region inside b/e region"] = makeTest(function(view) {
+	tests["test: initial - b/e region inside b/e region"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -539,7 +537,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// Test for Bug 347486, ensure we try all subrules on each line
-	tests["test TextMateStyler - initial - all subrules are tried"] = makeTest(function(view) {
+	tests["test: initial - all subrules are tried"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleGrammar);
 		var lines = [
 			'break var "foo" null 123',
@@ -559,7 +557,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - scope to non-0 capturing groups"] = makeTest(function(view) {
+	tests["test: scope to non-0 capturing groups"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.ComplexCaptures);
 		setLines(view, [
 			"function (arg1, arg2)",
@@ -578,7 +576,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - scope to non-0 capturing groups with end-to-begin backrefs"] = makeTest(function(view) {
+	tests["test: scope to non-0 capturing groups with end-to-begin backrefs"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.ComplexCaptures);
 		setLines(view, [
 			"[foo]bar[/foo]",
@@ -614,7 +612,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - scope to non-0 capturing groups with gaps between them"] = makeTest(function(view) {
+	tests["test: scope to non-0 capturing groups with gaps between them"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.ComplexCaptures);
 		setLines(view, [
 			"xxxaaxxxbbb"
@@ -628,7 +626,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	// ************************************************************************************************
 	// Test damage/repair styling
 	
-	tests["test TextMateStyler - change - inside region"] = makeTest(function(view) {
+	tests["test: change - inside region"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -658,7 +656,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	}, false);
 	
-	tests["test TextMateStyler - change - add non-region text that follows region"] = makeTest(function(view) {
+	tests["test: change - add non-region text that follows region"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -686,7 +684,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - change - add non-region text that precedes region"] = makeTest(function(view) {
+	tests["test: change - add non-region text that precedes region"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		var lines;
 		lines = [
@@ -716,7 +714,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// add non-region text between regions
-	tests["test TextMateStyler - change - add non-region text between regions"] = makeTest(function(view) {
+	tests["test: change - add non-region text between regions"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--aaa-->",
@@ -743,7 +741,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 
 	// creates a new region by adding the start block
-	tests["test TextMateStyler - change - add 'start' 1"] = makeTest(function(view) {
+	tests["test: change - add 'start' 1"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"a",
@@ -766,7 +764,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// creates a new region by adding the start block
-	tests["test TextMateStyler - change - add 'start' 2"] = makeTest(function(view) {
+	tests["test: change - add 'start' 2"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"xxxx<!--a",
@@ -818,7 +816,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// Creates a new region at eof. New region never matches its end (ie. extends until eof)
-	tests["test TextMateStyler - change - add 'start' at eof, no 'end'"] = makeTest(function(view) {
+	tests["test: change - add 'start' at eof, no 'end'"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a-->"
@@ -831,8 +829,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		assertLineScope(view, styler, 0, [
 			[0, 4, "punctuation.definition.comment.mylang", "<!--"],
 			[4, 5, "comment.block.mylang", "a"],
-			[5, 8, "punctuation.definition.comment.mylang", "-->"],
-			[8, 12, "punctuation.definition.comment.mylang", "<!--"]
+			[5, 12, "punctuation.definition.comment.mylang", "--><!--"]
 		]);
 		
 		/*
@@ -842,8 +839,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		assertLineScope(view, styler, 0, [
 			[0, 4, "punctuation.definition.comment.mylang", "<!--"],
 			[4, 5, "comment.block.mylang", "a"],
-			[5, 8, "punctuation.definition.comment.mylang", "-->"],
-			[8, 12, "punctuation.definition.comment.mylang", "<!--"],
+			[5, 12, "punctuation.definition.comment.mylang", "--><!--"],
 			[12, 13, "comment.block.mylang", "b"]
 		]);
 		
@@ -854,15 +850,14 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		assertLineScope(view, styler, 0, [
 			[0, 4, "punctuation.definition.comment.mylang", "<!--"],
 			[4, 5, "comment.block.mylang", "a"],
-			[5, 8, "punctuation.definition.comment.mylang", "-->"],
-			[8, 12, "punctuation.definition.comment.mylang", "<!--"],
+			[5, 12, "punctuation.definition.comment.mylang", "--><!--"],
 			[12, 13, "comment.block.mylang", "b"],
 			[13, 16, "punctuation.definition.comment.mylang", "-->"]
 			// x is ignored
 		]);
 	});
 	
-	tests["test TextMateStyler - change - add 'start' at eof on new line incr"] = makeTest(function(view) {
+	tests["test: change - add 'start' at eof on new line incr"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a-->"
@@ -911,7 +906,8 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		changeLine(view, "-", 1, 2, 2);
 		assertLine0Scope();
 		assertLineScope(view, styler, 1, [ /* no scope on line 1 */ ]);
-				/*
+		
+		/*
 		<!--a-->
 		<!--
 		*/
@@ -938,7 +934,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - change - add 'end' 1"] = makeTest(function(view) {
+	tests["test: change - add 'end' 1"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--has no end"
@@ -956,7 +952,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// Add an end when there are multiple regions
-	tests["test TextMateStyler - change - add 'end' 2"] = makeTest(function(view) {
+	tests["test: change - add 'end' 2"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--fizz-->",
@@ -1014,7 +1010,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	
 
 	// Add "end" where a following region exists
-	tests["test TextMateStyler - change - add 'end' 3"] = makeTest(function(view) {
+	tests["test: change - add 'end' 3"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--b",
@@ -1039,7 +1035,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 
 	// Add and "end" when there exist preceding and following regions
-	tests["test TextMateStyler - change - add 'end' 4"] = makeTest(function(view) {
+	tests["test: change - add 'end' 4"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a-->",
@@ -1087,7 +1083,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - change - remove 'start'"] = makeTest(function(view) {
+	tests["test: change - remove 'start'"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--xxx int-->"
@@ -1102,7 +1098,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - change - remove 'end' 1"] = makeTest(function(view) {
+	tests["test: change - remove 'end' 1"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a-->",
@@ -1134,7 +1130,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// Remove end of a nested region that has sibling regions before and after it
-	tests["test TextMateStyler - change - remove 'end' 2"] = makeTest(function(view) {
+	tests["test: change - remove 'end' 2"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a",
@@ -1209,7 +1205,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - change - remove 'end' at eof"] = makeTest(function(view) {
+	tests["test: change - remove 'end' at eof"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!--a-->",
@@ -1232,7 +1228,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	});
 	
 	// remove "end" token of last region incrementally -- Bug 349506
-	tests["test TextMateStyler - remove final 'end' - Bug 349506"] = makeTest(function(view) {
+	tests["test: remove final 'end' - Bug 349506"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!-- foo",
@@ -1267,7 +1263,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		assertLineScope(view, styler, 2, [ [0, 3, "comment.block.mylang", "baz"] ]);
 	});
 	
-	tests["test TextMateStyler - add final 'end', check redraw - Bug 349642"] = makeTest(function(view) {
+	tests["test: add final 'end', check redraw - Bug 349642"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.SampleBeginEndGrammar);
 		setLines(view, [
 			"<!-- foo",
@@ -1307,7 +1303,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 	
 //	// TODO: more damage/repair of nested regions
 
-	tests["test TextMateStyler - end-to-begin backreferences"] = makeTest(function(view) {
+	tests["test: end-to-begin backreferences"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.BackrefTestGrammar);
 		setLines(view, [
 			"This is [b]ENTERPRISE[/b] quality",
@@ -1337,7 +1333,7 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 		]);
 	});
 	
-	tests["test TextMateStyler - recursive includes"] = makeTest(function(view) {
+	tests["test: recursive includes"] = makeTest(function(view) {
 		var styler = makeStyler(view, mTestGrammars.RecursiveIncludeGrammar);
 		setLines(view, [
 			'aa"foo"bb',
@@ -1374,17 +1370,15 @@ define(["dojo", "orion/assert", "orion/textview/textView", "orion/editor/textMat
 			[11, 12, "punctuation.definition.array.end", "]"]
 		]);
 		assertLineScope(view, styler, 4, [
-			[0, 1, "punctuation.definition.array.begin", "["],
-			[1, 2, "punctuation.definition.array.begin", "["],
+			[0, 2, "punctuation.definition.array.begin", "[["],
 			[2, 3, "punctuation.definition.array.end", "]"],
 			[3, 4, "punctuation.array.separator", ","],
 			[5, 6, "punctuation.definition.array.begin", "["],
-			[6, 7, "punctuation.definition.array.end", "]"],
-			[7, 8, "punctuation.definition.array.end", "]"]
+			[6, 8, "punctuation.definition.array.end", "]]"]
 		]);
 	});
 	
-	tests["test TextMateStyler - external grammar reference"] = makeTest(function(view) {
+	tests["test: external grammar reference"] = makeTest(function(view) {
 		var grammars = [mTestGrammars.ExternalGrammar1, mTestGrammars.ExternalGrammar2];
 		var styler = makeStyler(view, grammars[0], grammars);
 		setLines(view, [

@@ -344,8 +344,8 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 		commandId = commandId || id+"commands";
 		var paneHeadingFragment = 
 			'<div class="toolComposite" id="' + id + '">' +
-				'<div class="layoutLeft" id="' + id + '"><span style: "inline-block;" id="' + headingId + '">' + headingLabel + '</span></div>' +
-				'<div class="layoutRight sectionActions" id="' + commandId + '"></div>' +
+				'<div class="layoutLeft" id="' + id + '"><span class="paneTitle" id="' + headingId + '">' + headingLabel + '</span></div>' +
+				'<ul class="layoutRight commandList sectionActions" id="' + commandId + '"></ul>' +
 				'<div id="' + parent.id + 'slideContainer" class="layoutBlock slideParameters slideContainer">' +
 					'<span id="' + parent.id + 'slideOut" class="slide">' +
 						'<span id="' + parent.id + 'pageCommandParameters" class="parameters"></span>' +
@@ -361,7 +361,7 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 			dojo.addClass(id, "paneHeading");
 		}
 		if (commandService) {
-			commandService.renderCommands(dojo.byId(commandId), "dom", handler, handler, "button");
+			commandService.renderCommands(commandId, dojo.byId(commandId), handler, handler, "button");
 		}
 		return dojo.byId(id);
 	}
@@ -385,6 +385,89 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 		}
 	}
 	
+	/**
+	 * Utility method for saving file contents to a specified location
+	 */
+	function saveFileContents(fileClient, targetMetadata, contents, afterSave) {
+		var etag = targetMetadata.ETag;
+		var args = { "ETag" : etag };
+		fileClient.write(targetMetadata.Location, contents, args).then(
+			function(result) {
+				if (afterSave) {
+					afterSave();
+				}
+			},
+			/* error handling */
+			function(error) {
+				// expected error - HTTP 412 Precondition Failed 
+				// occurs when file is out of sync with the server
+				if (error.status === 412) {
+					var forceSave = window.confirm("Resource is out of sync with the server. Do you want to save it anyway?");
+					if (forceSave) {
+						// repeat save operation, but without ETag 
+						fileClient.write(targetMetadata.Location, contents).then(
+							function(result) {
+									targetMetadata.ETag = result.ETag;
+									if (afterSave) {
+										afterSave();
+									}
+							}
+						);
+					}
+				}
+				// unknown error
+				else {
+					error.log = true;
+				}
+			}
+		);
+	}
+	
+	/**
+	 * Split file contents into lines. It also handles the mixed line endings with "\n", "\r" and "\r\n".
+	 *
+	 * @param {String} text The file contetns.
+	 * @returns {Array} Split file lines. 
+	 * @name orion.util#splitFile
+	 * @function
+	 */
+	function splitFile(text) {
+		var cr = 0, lf = 0, index = 0, start = 0;
+		var splitLines = [];
+		while (true) {
+			if (cr !== -1 && cr <= index) { 
+				cr = text.indexOf("\r", index); 
+			}
+			if (lf !== -1 && lf <= index) { 
+				lf = text.indexOf("\n", index); 
+			}
+			if (lf === -1 && cr === -1) {
+				break; 
+			}
+			var offset = 1;
+			if (cr !== -1 && lf !== -1) {
+				if (cr + 1 === lf) {
+					offset = 2;
+					index = lf + 1;
+				} else {
+					index = (cr < lf ? cr : lf) + 1;
+				}
+			} else if (cr !== -1) {
+				index = cr + 1;
+			} else {
+				index = lf + 1;
+			}
+			splitLines.push(text.substring(start, index - offset));
+			start = index;
+		}
+		return splitLines;
+	}
+	
+	function formatMessage(msg) {
+		var args = arguments;
+		return msg.replace(/\$\{([^\}]+)\}/g, function(str, index) { return args[(index << 0) + 1]; });
+	}
+	
 	//return module exports
 	return {
 		getUserKeyString: getUserKeyString,
@@ -401,6 +484,9 @@ define(['dojo', 'dijit', 'dojo/hash', 'dijit/form/ValidationTextBox'], function(
 		safeText: safeText,
 		setText: setText,
 		createPaneHeading: createPaneHeading,
-		forceLayout: forceLayout
+		forceLayout: forceLayout,
+		saveFileContents: saveFileContents,
+		splitFile: splitFile,
+		formatMessage: formatMessage
 	};
 });

@@ -10,7 +10,7 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 
-define(['require', 'dojo', 'orion/editor/regex'], function(require, dojo, mRegex) {
+define(['require', 'dojo', 'orion/editor/regex', 'orion/util'], function(require, dojo, mRegex, mUtil) {
 
 var orion = orion || {};
 
@@ -336,8 +336,8 @@ orion.searchUtils.generateMatchContext = function(contextAroundLength, fileConte
 	return context;
 };
 
-orion.searchUtils.searchWithinFile = function( inFileQuery, fileModelNode, fileContentText, lineDelim, replacing){
-	var fileContents = fileContentText.split(lineDelim);
+orion.searchUtils.searchWithinFile = function( inFileQuery, fileModelNode, fileContentText, lineDelim, replacing, caseSensitive){
+	var fileContents = mUtil.splitFile(fileContentText);
 	if(replacing){
 		fileModelNode.contents = fileContents;
 	}
@@ -347,7 +347,7 @@ orion.searchUtils.searchWithinFile = function( inFileQuery, fileModelNode, fileC
 		for(var i = 0; i < fileContents.length ; i++){
 			var lineStringOrigin = fileContents[i];
 			if(lineStringOrigin && lineStringOrigin.length > 0){
-				var lineString = lineStringOrigin.toLowerCase();
+				var lineString = caseSensitive ? lineStringOrigin : lineStringOrigin.toLowerCase();
 				var result;
 				if(inFileQuery.wildCard){
 					result = orion.searchUtils.searchOnelineRegEx(inFileQuery, lineString);
@@ -372,6 +372,28 @@ orion.searchUtils.searchWithinFile = function( inFileQuery, fileModelNode, fileC
 		}
 		fileModelNode.totalMatches = totalMatches;
 	}
+};
+
+orion.searchUtils.searchAllOccurrence = function( isRegEx, searchStr, caseSensitive, text, lineDelim){
+	var node = {type: "file", name: "allOccurrence"};
+	var inFileQuery = {};
+	if(!isRegEx){
+		inFileQuery.searchStr = caseSensitive ? searchStr : searchStr.toLowerCase();
+		inFileQuery.wildCard = false;
+	} else {
+		inFileQuery.searchStr =caseSensitive ? searchStr : searchStr.toLowerCase();;
+		var regexp = mRegex.parse("/" + inFileQuery.searchStr + "/");
+		if (regexp) {
+			var pattern = regexp.pattern;
+			var flags = regexp.flags;
+			flags = flags + (flags.indexOf("i") === -1 ? "i" : "");
+			inFileQuery.regExp = {pattern: pattern, flags: flags};
+			inFileQuery.wildCard = true;
+		}
+	}
+	inFileQuery.searchStrLength = inFileQuery.searchStr.length;
+	orion.searchUtils.searchWithinFile(inFileQuery, node, text, lineDelim, false, caseSensitive);
+	return {m: node, q:inFileQuery};
 };
 
 orion.searchUtils.replaceCheckedMatches = function(text, replacingStr, originalMatches, checkedMatches, defaultMatchLength){

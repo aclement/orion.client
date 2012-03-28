@@ -70,7 +70,7 @@ mSiteMappingsTable.Renderer = (function() {
 			}
 		},
 		getCellElement: function(/**Number*/ col_no, /**Object*/ item, /**HTMLTableRowElement*/ tableRow) {
-			var col, input;
+			var col, input, handler;
 			switch(col_no) {
 				case 0:
 					return this.getIsValidCell(col_no, item, tableRow);
@@ -79,9 +79,11 @@ mSiteMappingsTable.Renderer = (function() {
 					input = dojo.create("input");
 					dojo.addClass(input, "pathInput");
 					input.value = item.FriendlyPath;
-					input.onchange = dojo.hitch(this, function(event) {
+					handler = dojo.hitch(this, function(event) {
 							this.options.onchange(item, "FriendlyPath", event.target.value, event);
 						});
+					input.onchange = handler;
+					input.onkeyup = handler;
 					dojo.place(input, col);
 					return col;
 				case 2: // Mount at
@@ -89,9 +91,11 @@ mSiteMappingsTable.Renderer = (function() {
 					input = dojo.create("input");
 					dojo.addClass(input, "serverPathInput");
 					input.value = item.Source;
-					input.onchange = dojo.hitch(this, function(event) {
+					handler =  dojo.hitch(this, function(event) {
 							this.options.onchange(item, "Source", event.target.value, event);
 						});
+					input.onchange = handler;
+					input.onkeyup = handler;
 					dojo.place(input, col);
 					return col;
 				case 3: // Actions
@@ -111,12 +115,18 @@ mSiteMappingsTable.Renderer = (function() {
 				dojo.xhrGet({
 					url: location,
 					headers: { "Orion-Version": "1" },
-					handleAs: "json"
+					handleAs: "text"
 				}).then(
-					function(children) {
-						col.innerHTML = '<a href="' + href + '" target="_new"><span class="imageSprite core-sprite-folder" title="Workspace folder ' + href + '"/></a>';
+					function(object) {
+						try {
+							object = dojo.fromJson(object);
+						} catch(e) {}
+						var isDirectory = (typeof object === "object" && object.Directory);
+						var spriteClass = isDirectory ? "core-sprite-folder" : "core-sprite-file";
+						var title = (isDirectory ? "Workspace folder" : "Workspace file") + " " + href;
+						col.innerHTML = '<a href="' + href + '" target="_new"><span class="imageSprite ' + spriteClass + '" title="' + title + '"/></a>';
 					}, function(error) {
-						col.innerHTML = '<a href="' + href + '" target="_new"><span class="imageSprite core-sprite-error" title="Workspace folder not found: ' + href + '"/></a>';
+						col.innerHTML = '<a href="' + href + '" target="_new"><span class="imageSprite core-sprite-error" title="Workspace resource not found: ' + href + '"/></a>';
 					});
 			} else {
 				href = mUtil.safeText(target);
@@ -133,26 +143,31 @@ mSiteMappingsTable.Renderer = (function() {
  * @name orion.sites.MappingsTable
  */
 mSiteMappingsTable.MappingsTable = (function() {
-	function MappingsTable(serviceRegistry, siteService, selection, parentId, siteConfiguration, /**dojo.Deferred*/ projectsPromise) {
-		this.registry = serviceRegistry;
-		this.commandService = serviceRegistry.getService("orion.page.command");
+	function MappingsTable(options) {
+		this.registry = options.serviceRegistry;
+		this.commandService = this.registry.getService("orion.page.command");
 		this.registerCommands();
-		this.siteService = siteService;
-		this.parentId = parentId;
-		this.selection = selection;
+		this.siteService = options.siteService;
+		this.parentId = options.parentId;
+		this.selection = options.selection;
 		this.renderer = new mSiteMappingsTable.Renderer({
 				checkbox: false, /*TODO make true when we have selection-based commands*/
 				onchange: dojo.hitch(this, this.fieldChanged),
-				siteService: siteService
+				siteService: options.siteService,
+				actionScopeId: "siteMappingCommand"
 			}, this);
 		this.myTree = null;
-		this.siteConfiguration = siteConfiguration;
-		this.projectsPromise = projectsPromise;
+		this.projectsPromise = options.projects;
+		this._setSiteConfiguration(options.siteConfiguration);
 		this.setDirty(false);
 	}
 	MappingsTable.prototype = new mExplorer.Explorer();
 	mixin(MappingsTable.prototype, /** @lends orion.sites.MappingsTable.prototype */ {
-		startup: function() {
+		_setSiteConfiguration: function(site) {
+			this.siteConfiguration = site;
+			this.refresh();
+		},
+		refresh: function() {
 			var fetchItems = dojo.hitch(this, function() {
 				var d = new dojo.Deferred();
 				d.callback(this.siteConfiguration.Mappings);
@@ -165,17 +180,75 @@ mSiteMappingsTable.MappingsTable = (function() {
 					return this.createMappingObject(mapping.Source, mapping.Target);
 				}));
 				// Build visuals
+				this.saveFocus();
 				this.createTree(this.parentId, new mSiteMappingsTable.Model(null, fetchItems, this.siteConfiguration.Mappings));
+				setTimeout(dojo.hitch(this, this.restoreFocus), 0);
 			}));
+		},
+		saveFocus: function() {
+			var focus = document.activeElement;
+			if (focus && focus.tagName === "INPUT") {
+				var cell, row;
+				for (var elem = focus.parentNode; elem; elem = elem.parentNode) {
+					if (elem.tagName === "TD") {
+						cell = elem;
+					}
+					if (dojo.hasClass(elem, "treeTableRow")) {
+						row = elem;
+						break;
+					}
+				}
+				if (row && cell) {
+					var rows = dojo.query(".treeTableRow", this.parentId);
+					for (var i=0; i < rows.length; i++) {
+						if (rows[i] === row) {
+							this.focusedRow = i;
+							this.focusedCell = dojo.query("td", row).indexOf(cell);
+							break;
+						}
+					}
+				} else {
+					this.focusedRow = -1;
+					this.focusedCell = -1;
+				}
+			}
+		},
+		restoreFocus: function() {
+			if (this.focusedRow !== -1 && this.focusedCell !== -1) {
+				var rows = dojo.query(".treeTableRow", this.parentId);
+				var row = rows[this.focusedRow];
+				if (row) {
+					var cell = dojo.query("td", row)[this.focusedCell];
+					if (cell) {
+						var input = dojo.query("input", cell)[0];
+						if (input && input.focus) {
+							input.focus();
+						}
+					}
+				}
+			}
+			this.focusedRow = -1;
+			this.focusedCell = -1;
 		},
 		render: function() {
 			this.changedItem(this.siteConfiguration.Mappings, this.siteConfiguration.Mappings);
+		},
+		// Render the row of a single item, without rendering its siblings.
+		renderItemRow: function(item, fieldName) {
+			if (fieldName === "FriendlyPath") {
+				// Just update the "is valid" column
+				var rowNode = dojo.byId(this.myTree._treeModel.getId(item));
+				var oldCell = dojo.query(".isValidCell", rowNode)[0];
+				var col_no = dojo.query("td", rowNode).indexOf(oldCell);
+				var cell = this.renderer.getIsValidCell(col_no, item, rowNode);
+				dojo.place(cell, oldCell, "replace");
+			}
 		},
 		registerCommands: function() {
 			var deleteMappingCommand = new mCommands.Command({
 				name: "Delete",
 				imageClass: "core-sprite-delete",
-				id: "eclipse.site.mappings.remove",
+				id: "orion.site.mappings.remove",
 				visibleWhen: function(item) {
 					// Only show on a Mappings object
 					return item.Source && item.Target;
@@ -186,13 +259,13 @@ mSiteMappingsTable.MappingsTable = (function() {
 					this.render();
 					this.setDirty(true);
 				})});
-			this.commandService.addCommand(deleteMappingCommand , "object");
-			this.commandService.registerCommandContribution("eclipse.site.mappings.remove", 0);
+			this.commandService.addCommand(deleteMappingCommand);
+			this.commandService.registerCommandContribution("siteMappingCommand", "orion.site.mappings.remove", 0);
 			
 			var moveUpCommand = new mCommands.Command({
 				name: "Move Up",
 				imageClass: "core-sprite-move_up",
-				id: "eclipse.site.mappings.moveUp",
+				id: "orion.site.mappings.moveUp",
 				visibleWhen: dojo.hitch(this, function(item) {
 					return item.Source && item.Target;
 				}),
@@ -205,13 +278,13 @@ mSiteMappingsTable.MappingsTable = (function() {
 					this.render();
 					this.setDirty(true);
 				})});
-			this.commandService.addCommand(moveUpCommand, "object");
-			this.commandService.registerCommandContribution("eclipse.site.mappings.moveUp", 1);
+			this.commandService.addCommand(moveUpCommand);
+			this.commandService.registerCommandContribution("siteMappingCommand", "orion.site.mappings.moveUp", 1);
 			
 			var moveDownCommand = new mCommands.Command({
 				name: "Move Down",
 				imageClass: "core-sprite-move_down",
-				id: "eclipse.site.mappings.moveDown",
+				id: "orion.site.mappings.moveDown",
 				visibleWhen: dojo.hitch(this, function(item) {
 					return item.Source && item.Target;
 				}),
@@ -225,8 +298,8 @@ mSiteMappingsTable.MappingsTable = (function() {
 					this.render();
 					this.setDirty(true);
 				})});
-			this.commandService.addCommand(moveDownCommand, "object");
-			this.commandService.registerCommandContribution("eclipse.site.mappings.moveDown", 2);
+			this.commandService.addCommand(moveDownCommand);
+			this.commandService.registerCommandContribution("siteMappingCommand", "orion.site.mappings.moveDown", 2);
 		},
 		getItemIndex: function(item) {
 			return this.siteConfiguration.Mappings.indexOf(item);
@@ -310,7 +383,7 @@ mSiteMappingsTable.MappingsTable = (function() {
 				if (fieldName === "FriendlyPath") {
 					this.propagate(newValue, item);
 				}
-				this.render();
+				this.renderItemRow(item, fieldName);
 				this.setDirty(true);
 			}
 		},

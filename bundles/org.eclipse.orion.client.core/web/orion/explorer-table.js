@@ -12,7 +12,7 @@
 /*global define window */
 /*jslint regexp:false browser:true forin:true*/
 
-define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explorerNavHandler', 'orion/breadcrumbs', 'orion/fileCommands', 'orion/extensionCommands', 'orion/contentTypes', 'dojo/number', 'dijit/form/DropDownButton'],
+define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explorerNavHandler', 'orion/breadcrumbs', 'orion/fileCommands', 'orion/extensionCommands', 'orion/contentTypes', 'dojo/number'],
 		function(require, dojo, dijit, mUtil, mExplorer, mNavHandler, mBreadcrumbs, mFileCommands, mExtensionCommands){
 
 	/**
@@ -58,7 +58,9 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 		this.commandService = commandService;
 		this.contentTypeService = contentTypeService;
 		this.openWithCommands = null;
+		this.actionScopeId = "fileFolderCommands";
 		this._init(options);
+		this.target = "_self";
 	}
 	FileRenderer.prototype = new mExplorer.SelectionRenderer(); 
 	
@@ -82,6 +84,14 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 		if(this.explorer.navHandler){
 			this.explorer.navHandler.cursorOn(model);
 		}
+	};
+	
+	FileRenderer.prototype.setTarget = function(target){
+		this.target = target;
+		
+		dojo.query(".targetSelector").forEach(function(node, index, arr){
+    		node.target = target;
+  		});
 	};
 	
 	FileRenderer.prototype.getCellElement = function(col_no, item, tableRow){
@@ -157,26 +167,12 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 				if (!foundEditor && this.defaultEditor && !isImage(contentType)) {
 					href = this.defaultEditor.hrefCallback({items: item});
 				}				
-				// link with file image and name
-				link = dojo.create("a", {className: "navlink", id: tableRow.id+"NameColumn", href: href}, span, "last");
+
+				link = dojo.create("a", {className: "navlink targetSelector", id: tableRow.id+"NameColumn", href: href, target:this.target}, span, "last");
 				addImageToLink(contentType, link);
 				dojo.place(document.createTextNode(item.Name), link, "last");
 			}
-			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=372182
-			// use a timeout so rendering is non-blocking.  
-			// TOTAL HACK...insert a temporary drop down button to get the layout the same, then remove it when
-			// we have the real menu.
-			var menuButton = new dijit.form.DropDownButton({
-				label: "Actions",
-				showLabel:  false
-			});
-			dojo.addClass(menuButton.domNode, "commandMenu textless");
-			dojo.destroy(menuButton.valueNode); // the valueNode gets picked up by screen readers; since it's not used, we can get rid of it
-			dojo.place(menuButton.domNode, span, "last");
-			window.setTimeout(dojo.hitch(this, function() {
-				menuButton.destroyRecursive();
-				this.commandService.renderCommands(span, "object", item, this.explorer, "tool", false);
-			}), 0);
+			this.commandService.renderCommands(this.actionScopeId, span, item, this.explorer, "tool");
 			return col;
 		case 1:
 			var dateColumn = document.createElement('td');
@@ -221,7 +217,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 	 * @param {orion.searchClient.Searcher} options.searcher
 	 * @param {orion.fileClient.FileClient} options.fileClient
 	 * @param {orion.commands.CommandService} options.commandService
-	 * @param {orion.file.ContentTypeService} options.contentTypeService
+	 * @param {orion.core.ContentTypeService} options.contentTypeService
 	 * @param {String} options.parentId
 	 * @param {String} options.breadcrumbId
 	 * @param {String} options.toolbarId
@@ -242,6 +238,9 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 		this.model = null;
 		this.myTree = null;
 		this.renderer = new FileRenderer({checkbox: true, decorateAlternatingLines: false, cachePrefix: "Navigator"}, this, this.commandService, this.contentTypeService);
+		this.preferences = options.preferences;
+		this.setTarget();
+		this.storageKey = this.preferences.listenForChangedSettings( dojo.hitch( this, 'onStorage' ) );
 	}
 	
 	FileExplorer.prototype = new mExplorer.Explorer();
@@ -276,6 +275,35 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/explorer', 'orion/explo
 			} else if(this.treeRoot.Parents[0].ChildrenLocation){
 				window.location.href = "#" + this.treeRoot.Parents[0].ChildrenLocation;
 			}
+		}
+	};
+	
+	FileExplorer.prototype.setTarget = function(){
+	
+		var preferences = this.preferences;	
+		var renderer = this.renderer;
+	
+		this.preferences.getPreferences('/settings', 2).then( function(prefs){	
+				
+			var storage = JSON.parse( prefs.get("General") );
+			
+			if(storage){
+				var target = preferences.getSetting( storage, "Navigation", "Links" );
+				
+				if( target === "Open in new tab" ){
+					target = "_blank";
+				}else{
+					target = "_self";
+				}
+				
+				renderer.setTarget( target );
+			}
+		});
+	};
+	
+	FileExplorer.prototype.onStorage = function (e) {
+		if( e.key === this.storageKey ){
+			this.setTarget();
 		}
 	};
 	

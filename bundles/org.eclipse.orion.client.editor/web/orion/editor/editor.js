@@ -12,13 +12,15 @@
  /*global define window */
  /*jslint maxerr:150 browser:true devel:true laxbreak:true regexp:false*/
 
-define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview/keyBinding', 'orion/textview/eventTarget', 'orion/textview/tooltip'], function(messages, mKeyBinding, mEventTarget, mTooltip) {
+define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview/keyBinding', 'orion/textview/eventTarget', 'orion/textview/tooltip', 'orion/textview/annotations', 'orion/textview/util'], function(messages, mKeyBinding, mEventTarget, mTooltip, mAnnotations, mUtil) {
 
 	/**
 	 * @name orion.editor.util
 	 * @class Basic helper functions used by <code>orion.editor</code>.
 	 */
 	var util;
+	
+	var HIGHLIGHT_ERROR_ANNOTATION = "orion.annotation.highlightError";
 
 	/**
 	 * @name orion.editor.Editor
@@ -71,14 +73,6 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 		this._keyModes = [];
 	}
 	Editor.prototype = /** @lends orion.editor.Editor.prototype */ {
-		errorType: "orion.annotation.error",
-		warningType: "orion.annotation.warning",
-		taskType: "orion.annotation.task",
-		foldingType: "orion.annotation.folding",
-		currentBracketType: "orion.annotation.currentBracket",
-		matchingBracketType: "orion.annotation.matchingBracket",
-		currentLineType: "orion.annotation.currentLine",
-		highlightErrorType: "orion.annotation.highlightError",
 		
 		/**
 		 * Returns the underlying <code>TextView</code> used by this editor. 
@@ -147,7 +141,7 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 			var annotations = annotationModel.getAnnotations(offset, offset + 1);
 			while (annotations.hasNext()) {
 				var annotation = annotations.next();
-				if (annotation.type === "orion.annotation.folding") {
+				if (annotation.type === mAnnotations.AnnotationType.ANNOTATION_FOLDING) {
 					if (annotation.expand) {
 						annotation.expand();
 						annotationModel.modifyAnnotation(annotation);
@@ -199,7 +193,7 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 					textView.annotationModel = this._annotationModel;
 					
 					this._foldingRuler = this._foldingRulerFactory.createFoldingRuler(this._annotationModel);
-					this._foldingRuler.addAnnotationType(this.foldingType);
+					this._foldingRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_FOLDING);
 					textView.addRuler(this._foldingRuler);
 				}
 			} else {
@@ -230,7 +224,7 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 		 * @param {function} callBack A call back function that is used after the move animation is done
 		 * @private
 		 */
-		moveSelection: function(start, end, callBack) {
+		moveSelection: function(start, end, callBack, focus) {
 			end = end || start;
 			var textView = this._textView;
 			this.setSelection(start, end, false);
@@ -251,7 +245,9 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 					},
 					onEnd: function() {
 						textView.showSelection();
-						textView.focus();
+						if (focus === undefined || focus) {
+							textView.focus();
+						}
 						if(callBack) {
 							callBack();
 						}
@@ -260,7 +256,9 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 				a.play();
 			} else {
 				textView.showSelection();
-				textView.focus();
+				if (focus === undefined || focus) {
+					textView.focus();
+				}
 				if(callBack) {
 					callBack();
 				}
@@ -323,80 +321,6 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 		getAnnotationModel : function() {
 			return this._annotationModel;
 		},
-
-		/**
-		 * Helper for finding occurrences of str in the editor contents.
-		 * @param {String} str
-		 * @param {Number} searchStart offset in the base model where the search should start
-		 * @param {Boolean} [ignoreCase=false] whether or not the search is case sensitive
-		 * @param {Boolean} [reverse=false] whether the search should be backwards
-		 * @return {Object} An object giving the match details, or <code>null</code> if no match found. The returned 
-		 * object will have the properties:<br />
-		 * {Number} index<br />
-		 * {Number} length 
-		 */
-		doFind: function(str, searchStart, ignoreCase, reverse) {
-			var text = this.getText();
-			if (ignoreCase) {
-				str = str.toLowerCase();
-				text = text.toLowerCase();
-			}
-			
-			var i;
-			if (reverse) {
-				text = text.split("").reverse().join("");
-				str = str.split("").reverse().join("");
-				searchStart = text.length - searchStart - 1;
-				i = text.indexOf(str, searchStart);
-				if (i !== -1) {
-					return {index: text.length - str.length - i, length: str.length};
-				}
-			} else {
-				i = text.indexOf(str, searchStart);
-				if (i !== -1) {
-					return {index: i, length: str.length};
-				}
-			}
-			return null;
-		},
-		
-		/**
-		 * Helper for finding regex matches in the editor contents. Use {@link #doFind} for simple string searches.
-		 * @param {String} pattern A valid regexp pattern.
-		 * @param {String} flags Valid regexp flags: [is]
-		 * @param {Number} searchStart offset in the base model where the search should start
-		 * @param {Boolean} [reverse=false] whether the search should be backwards
-		 * @return {Object} An object giving the match details, or <code>null</code> if no match found. The returned object
-		 * will have the properties:<br />
-		 * {Number} index<br />
-		 * {Number} length 
-		 */
-		doFindRegExp: function(pattern, flags, searchStart, reverse) {
-			if (!pattern) {
-				return null;
-			}
-			
-			flags = flags || "";
-			// 'g' makes exec() iterate all matches, 'm' makes ^$ work linewise
-			flags += (flags.indexOf("g") === -1 ? "g" : "") + (flags.indexOf("m") === -1 ? "m" : "");
-			var regexp = new RegExp(pattern, flags);
-			var text = this.getText();
-			var result = null,
-			    match = null;
-			if (reverse) {
-				while (true) {
-					result = regexp.exec(text);
-					if (result && result.index <= searchStart) {
-						match = {index: result.index, length: result[0].length};
-					} else {
-						return match;
-					}
-				}
-			} else {
-				result = regexp.exec(text.substring(searchStart));
-				return result && {index: result.index + searchStart, length: result[0].length};
-			}
-		},
 		
 		/** @private */
 		_highlightCurrentLine: function(newSelection, oldSelection) {
@@ -419,15 +343,8 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 						start = model.mapOffset(start);
 						end = model.mapOffset(end);
 					}
-					this._currentLineAnnotation = {
-						start: start,
-						end: end,
-						type: this.currentLineType,
-						title: messages.currentLine,
-						html: "<div class='annotationHTML currentLine'></div>",
-						overviewStyle: {styleClass: "annotationOverview currentLine"},
-						lineStyle: {styleClass: "annotationLine currentLine"}
-					};
+					var type = mAnnotations.AnnotationType.ANNOTATION_CURRENT_LINE;
+					this._currentLineAnnotation = mAnnotations.AnnotationType.createAnnotation(type, start, end);
 					add = [this._currentLineAnnotation];
 				}
 				annotationModel.replaceAnnotations(remove, add);
@@ -441,12 +358,14 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 			}
 			if (this._annotationFactory) {
 				this._annotationStyler = this._annotationFactory.createAnnotationStyler(this.getTextView(), this._annotationModel);
-				this._annotationStyler.addAnnotationType(this.errorType);
-				this._annotationStyler.addAnnotationType(this.warningType);
-				this._annotationStyler.addAnnotationType(this.matchingBracketType);
-				this._annotationStyler.addAnnotationType(this.currentBracketType);
-				this._annotationStyler.addAnnotationType(this.currentLineType);
-				this._annotationStyler.addAnnotationType(this.highlightErrorType);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_SEARCH);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_MATCHING_SEARCH);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_ERROR);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_WARNING);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_MATCHING_BRACKET);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_BRACKET);
+				this._annotationStyler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_LINE);
+				this._annotationStyler.addAnnotationType(HIGHLIGHT_ERROR_ANNOTATION);
 			}
 		},
 		
@@ -581,15 +500,17 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 				};
 			
 				this._annotationRuler.setMultiAnnotationOverlay({html: "<div class='annotationHTML overlay'></div>"});
-				this._annotationRuler.addAnnotationType(this.errorType);
-				this._annotationRuler.addAnnotationType(this.warningType);
-				this._annotationRuler.addAnnotationType(this.taskType);
-				this._overviewRuler.addAnnotationType(this.errorType);
-				this._overviewRuler.addAnnotationType(this.warningType);
-				this._overviewRuler.addAnnotationType(this.taskType);
-				this._overviewRuler.addAnnotationType(this.matchingBracketType);
-				this._overviewRuler.addAnnotationType(this.currentBracketType);
-				this._overviewRuler.addAnnotationType(this.currentLineType);
+				this._annotationRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_ERROR);
+				this._annotationRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_WARNING);
+				this._annotationRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_TASK);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_SEARCH);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_MATCHING_SEARCH);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_ERROR);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_WARNING);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_TASK);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_MATCHING_BRACKET);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_BRACKET);
+				this._overviewRuler.addAnnotationType(mAnnotations.AnnotationType.ANNOTATION_CURRENT_LINE);
 				textView.addRuler(this._annotationRuler);
 				textView.addRuler(this._overviewRuler);
 			}
@@ -621,7 +542,7 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 					return;
 				}
 			}
-			this.reportStatus(messages.formatMessage(messages.lineColumn, lineIndex + 1, offsetInLine + 1));
+			this.reportStatus(mUtil.formatMessage(messages.lineColumn, lineIndex + 1, offsetInLine + 1));
 		},
 		
 		showProblems: function(problems) {
@@ -634,7 +555,7 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 			var annotations = annotationModel.getAnnotations(0, model.getCharCount()), annotation;
 			while (annotations.hasNext()) {
 				annotation = annotations.next();
-				if (annotation.type === this.errorType || annotation.type === this.warningType) {
+				if (annotation.type === mAnnotations.AnnotationType.ANNOTATION_ERROR || annotation.type === mAnnotations.AnnotationType.ANNOTATION_WARNING) {
 					remove.push(annotation);
 				}
 			}
@@ -648,16 +569,10 @@ define("orion/editor/editor", ['i18n!orion/editor/nls/messages', 'orion/textview
 						var lineIndex = problem.line - 1;
 						var lineStart = model.getLineStart(lineIndex);
 						var severity = problem.severity;
-						annotation = {
-							type: this[severity + "Type"],
-							start: lineStart + problem.start - 1,
-							end: lineStart + problem.end,
-							title: escapedDescription,
-							html: "<div class='" + "annotationHTML" + " " + severity + "'></div>",
-							style: {styleClass: "annotation" + " " + severity},
-							overviewStyle: {styleClass: "annotationOverview" + " " + severity},
-							rangeStyle: {styleClass: "annotationRange" + " " + severity}
-						};
+						var type = severity === "error" ? mAnnotations.AnnotationType.ANNOTATION_ERROR : mAnnotations.AnnotationType.ANNOTATION_WARNING;
+						var start = lineStart + problem.start - 1;
+						var end = lineStart + problem.end;
+						annotation = mAnnotations.AnnotationType.createAnnotation(type, start, end, escapedDescription);
 						add.push(annotation);
 					}
 				}

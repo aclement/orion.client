@@ -28,7 +28,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 			options.readOnly = true;
 			this.contentText = new dijit.form.TextBox(options);
 			this.contentText.set('ecliplseCustomValue',true);
-			this.dateP = dojo.create("p", {innerHTML: "&nbsp;", className: "userprofile"});
+			this.dateP = dojo.create("span", {innerHTML: "&nbsp;", className: "userprofile"});
 			dojo.connect(this.contentText, "onChange", dojo.hitch(this, function(myDijit,p){
 					if(myDijit.get('value')!==""){
 						var value = parseInt(myDijit.get('value'));
@@ -129,8 +129,8 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 			this.pageActionsPlaceholder =  dojo.byId('pageActions');
 			dojo.empty(this.pageActionsPlaceholder);
 			
-			this.profileForm = new dijit.form.Form({id: "profileForm"});
-			this.profilePlaceholder.innerHTML = "";
+			this.profileForm = new dijit.form.Form({id: "profileForm"});			
+			
 			this.profileForm.placeAt(this.profilePlaceholder);
 			
 			var userPluginDiv = dojo.create("div", null, userProfile.profileForm.get("domNode"));
@@ -233,7 +233,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 				  
 				  if(formElem.get('readOnly')===true && !formElem.get('ecliplseCustomValue')){
 					  formElem.set('style', 'display: none');
-					  var p = dojo.create("p", {id: formElem.get('id')+"_p", className: "userprofile", innerHTML: formElem.get('value')?formElem.get('value'):"&nbsp;"}, node, "last");
+					  var p = dojo.create("span", {id: formElem.get('id')+"_p", className: "userprofile", innerHTML: formElem.get('value')?formElem.get('value'):"&nbsp;"}, node, "last");
 					  
 					  setInnerHTML(formElem, p);
 					  
@@ -261,6 +261,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 				this.setHash(iframe, this.lastJSON.Location);
 			dojo.place(iframe, placeholder);
 		},
+		
 		draw: function(content, placeholder){
 			var profile = this;
 			placeholder.innerHTML = "";
@@ -269,36 +270,36 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 				
 				if(dijit.byId(content.sections[i].id))
 					dijit.byId(content.sections[i].id).destroy();
+
+				var titleWrapper = dojo.create( "div", {"class":"auxpaneHeading sectionWrapper toolComposite", "id": content.sections[i].id + "_SectionHeader"}, placeholder );
 				
-				var sectionPane = new dijit.layout.ContentPane({id: content.sections[i].id,
-						"class": "userprofileSection",
-			    		dojoType: "dijit.layout.ContentPane",
-			    		region: "top",
-			    		style: "height: 20px;",
-			    		content: "<span style='vertical-align: middle'>"+content.sections[i].name+"</span>",
-			    		style: "clear: both"
-				});
-				sectionPane.placeAt(placeholder);
+				dojo.create( "div", { id: content.sections[i].id + "_SectionTitle", "class":"layoutLeft", innerHTML: content.sections[i].name }, titleWrapper );
+
+				var content2 =	
+					'<div class="sectionTable">' +
+						'<list id="' + content.sections[i].id + '"></list>' +
+					'</div>';
 				
-				
-				
+				dojo.place( content2, placeholder );
+
 				var sectionContents = dojo.create("div", null, placeholder);
 				
 				if(content.sections[i].type==="iframe"){
 					dojo.hitch(this, this.drawIframe(content.sections[i].data, sectionContents));
 					return;
 				}
-				
+
 				for(var j=0; j<content.sections[i].data.length; j++){
+					var tableListItem = dojo.create( "div", { "class":"sectionTableItem"}, dojo.byId(content.sections[i].id) );
+					
 					var data = content.sections[i].data[j];
-					var dataDiv = dojo.create("div", null, sectionContents);
-					dojo.create("label", {className: "userprofile", innerHTML: data.label, "for": data.id}, dataDiv);
-									
-						var input = this.createFormElem(data, dataDiv);
-						dojo.connect(input, "onKeyPress", dojo.hitch(profile, function(event){ if (event.keyCode === 13) { this.fire(); } else {return true;}}));
-						if(this.lastJSON && data.props && this.lastJSON[data.props.name]){
-							input.set('value', this.lastJSON[data.props.name]);
-						}
+					var label = dojo.create("label", {"for": data.props.id}, tableListItem);
+					dojo.create( "span", {style: "min-width:150px; display:inline-block", innerHTML: data.label }, label );				
+					var input = this.createFormElem(data, label);
+					dojo.connect(input, "onKeyPress", dojo.hitch(profile, function(event){ if (event.keyCode === 13) { this.fire(); } else {return true;}}));
+					if(this.lastJSON && data.props && this.lastJSON[data.props.name]){
+						input.set('value', this.lastJSON[data.props.name]);
+					}
 				}
 			}
 			if(content.actions && content.actions.length>0){
@@ -306,7 +307,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 				var bannerPane = dojo.byId('pageTitle');
 				
 				dojo.empty(bannerPane);
-				dojo.create("span", {id:"profileBanner", innerHTML: "Profile Information"}, bannerPane);
+				dojo.create("span", {id:"profileBanner", innerHTML: "User Profile"}, bannerPane);
 	
 				var location = dojo.byId("location");
 				if (location) {
@@ -318,7 +319,7 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 				}
 				
 				dojo.empty(this.pageActionsPlaceholder);
-				this.commandService.addCommandGroup("eclipse.profileActionsGroup", 100, null, null, this.pageActionsPlaceholder.id);
+				this.commandService.addCommandGroup(this.pageActionsPlaceholder.id, "eclipse.profileActionsGroup", 100);
 				for(var i=0; i<content.actions.length; i++){
 					var info = content.actions[i];
 					var commandOptions = {
@@ -329,10 +330,10 @@ define(['require', 'dojo', 'dijit', 'orion/commands', 'orion/auth', 'orion/bread
 							callback: dojo.hitch(profile, function(action){this.fire(action);}, info.action)
 					};
 					var command = new mCommands.Command(commandOptions);
-					this.commandService.addCommand(command, "dom");					
-					this.commandService.registerCommandContribution(info.id, i, this.pageActionsPlaceholder.id, "eclipse.profileActionsGroup");
+					this.commandService.addCommand(command);					
+					this.commandService.registerCommandContribution(this.pageActionsPlaceholder.id, info.id, i, "eclipse.profileActionsGroup");
 				}
-				this.commandService.renderCommands(this.pageActionsPlaceholder, "dom", {}, {}, "button");
+				this.commandService.renderCommands(this.pageActionsPlaceholder.id, this.pageActionsPlaceholder, {}, {}, "button");
 				
 			}
 			

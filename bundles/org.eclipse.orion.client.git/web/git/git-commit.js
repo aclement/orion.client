@@ -12,11 +12,11 @@
 var eclipse;
 /*global define document dojo dijit serviceRegistry:true */
 /*browser:true*/
-define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 'orion/commands', 'orion/dialogs', 'orion/selection',
+define(['i18n!git/nls/gitmessages', 'require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 'orion/commands', 'orion/dialogs', 'orion/selection',
 	'orion/fileClient', 'orion/operationsClient', 'orion/searchClient', 'orion/globalCommands',
 	'orion/git/gitCommitExplorer', 'orion/git/gitCommands', 'orion/git/gitClient', 'orion/links', 'orion/contentTypes',
 	'dojo/parser', 'dojo/hash', 'dijit/layout/BorderContainer', 'dijit/layout/ContentPane', 'orion/widgets/eWebBorderContainer'],
-	function(require, dojo, mBootstrap, mStatus, mProgress, mCommands, mDialogs, mSelection,
+	function(messages, require, dojo, mBootstrap, mStatus, mProgress, mCommands, mDialogs, mSelection,
 		mFileClient, mOperationsClient, mSearchClient, mGlobalCommands,
 		mGitCommitExplorer, mGitCommands, mGitClient, mLinks, mContentTypes) {
 
@@ -40,7 +40,7 @@ define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 
 		var contentTypeService = new mContentTypes.ContentTypeService(serviceRegistry);
 		var searcher = new mSearchClient.Searcher({serviceRegistry: serviceRegistry, commandService: commandService, fileService: fileClient});
 
-		var explorer = new mGitCommitExplorer.GitCommitExplorer(serviceRegistry, commandService, linkService, /* selection */ null, "artifacts", "pageActions"/*, "selectionTools"*/);
+		var explorer = new mGitCommitExplorer.GitCommitExplorer(serviceRegistry, commandService, linkService, /* selection */ null, "artifacts", "pageActions", null, "itemLevelCommands");
 		mGlobalCommands.generateBanner("banner", serviceRegistry, commandService, preferences, searcher, explorer);
 
 		// define commands
@@ -48,16 +48,16 @@ define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 
 		mGitCommands.createGitClonesCommands(serviceRegistry, commandService, explorer, "pageActions", "selectionTools", fileClient);
 
 		// define the command contributions - where things appear, first the groups
-		commandService.addCommandGroup("eclipse.gitGroup", 100, null, null, "pageActions");
-		commandService.registerCommandContribution("eclipse.orion.git.cherryPick", 100, "pageActions", "eclipse.gitGroup");
-		commandService.registerCommandContribution("eclipse.orion.git.openCommitCommand", 102, "pageActions", "eclipse.gitGroup", true, new mCommands.CommandKeyBinding('h', true, true));
+		commandService.addCommandGroup("pageActions", "eclipse.gitGroup", 100);
+		commandService.registerCommandContribution("pageActions", "eclipse.orion.git.cherryPick", 100, "eclipse.gitGroup");
+		commandService.registerCommandContribution("pageActions", "eclipse.orion.git.openCommitCommand", 102, "eclipse.gitGroup", true, new mCommands.CommandKeyBinding('h', true, true));
 
 		// object contributions
-		commandService.registerCommandContribution("eclipse.removeTag", 1000);
+		commandService.registerCommandContribution("itemLevelCommands", "eclipse.removeTag", 1000);
 		
 		var showDiffCommand = new mCommands.Command({
-			name: "Compare",
-			tooltip: "View the side-by-side compare",
+			name: messages["Compare"],
+			tooltip: messages["View the side-by-side compare"],
 			imageClass: "git-sprite-open_compare",
 			spriteClass: "gitCommandSprite",
 			id: "eclipse.orion.git.diff.showFullCompare",
@@ -69,12 +69,12 @@ define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 
 			}
 		});		
 
-		commandService.addCommand(showDiffCommand, "object");
-		commandService.registerCommandContribution("eclipse.orion.git.diff.showFullCompare", 1000);
+		commandService.addCommand(showDiffCommand);
+		commandService.registerCommandContribution("itemLevelCommands", "eclipse.orion.git.diff.showFullCompare", 1000);
 		
-		var showDiffCommand = new mCommands.Command({
-			name: "Working Directory Version",
-			tooltip: "View the working directory version of the file",
+		showDiffCommand = new mCommands.Command({
+			name: messages["Working Directory Version"],
+			tooltip: messages["View the working directory version of the file"],
 			imageClass: "git-sprite-open_compare",
 			spriteClass: "gitCommandSprite",
 			id: "eclipse.orion.git.diff.showCurrent",
@@ -86,8 +86,8 @@ define(['require', 'dojo', 'orion/bootstrap', 'orion/status', 'orion/progress', 
 			}
 		});		
 
-		commandService.addCommand(showDiffCommand, "object");
-		commandService.registerCommandContribution("eclipse.orion.git.diff.showCurrent", 2000);	
+		commandService.addCommand(showDiffCommand);
+		commandService.registerCommandContribution("itemLevelCommands", "eclipse.orion.git.diff.showCurrent", 2000);	
 
 		explorer.display(dojo.hash());
 

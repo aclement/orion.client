@@ -1,6 +1,6 @@
 /*******************************************************************************
  * @license
- * Copyright (c) 2010,2011 IBM Corporation and others.
+ * Copyright (c) 2010,2012 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials are made 
  * available under the terms of the Eclipse Public License v1.0 
  * (http://www.eclipse.org/legal/epl-v10.html), and the Eclipse Distribution 
@@ -13,12 +13,35 @@
  
 define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu', 'dijit/form/DropDownButton', 'dijit/MenuItem', 'dijit/PopupMenuItem', 'dijit/MenuSeparator', 'dijit/Tooltip', 'dijit/TooltipDialog' ], function(require, dojo, dijit, mUtil, PageUtil){
 
+	/*
+	 * stateless helper function
+	 */
+	function _setupActivateVisuals(domNode, focusNode, overClass) {
+		var makeActive = function() {
+			if (overClass) {
+				dojo.addClass(this, overClass);
+			}
+		};
+		var makeInactive = function() {
+			if (overClass) {
+				dojo.removeClass(this, overClass);
+			}
+		};
+		dojo.connect(domNode, "onmouseover", domNode, makeActive);
+		dojo.connect(focusNode, "onfocus", domNode, makeActive);
+		dojo.connect(domNode, "onmouseout", domNode, makeInactive);
+		dojo.connect(focusNode, "onblur", domNode, makeInactive);
+	}
+
 	/**
 	 * CommandInvocation is a data structure that carries all relevant information about a command invocation.
-	 * Note:  when retrieving parameters for a command invocation, clients should always use <code>commandInvocation.parameters</code>
+	 * It represents a unique invocation of a command by the user.  Each time a user invokes a command (by click, keystroke, URL),
+	 * a new invocation is passed to the client.
+	 * Note:  When retrieving parameters from a command invocation, clients should always use <code>commandInvocation.parameters</code>
 	 * rather than obtaining the parameter object originally specified for the command (<code>commandInvocation.command.parameters</code>).
-	 * This ensures that the parameter values for the actual invocation are used vs. any default parameters that may have been
-	 * specified originally.
+	 * This ensures that the parameter values for a unique invocation are used vs. any default parameters that may have been
+	 * specified originally.  Similarly, if a client wishes to store data that will preserved across multiple invocations of a command,
+	 * that data can be stored in the original parameters description and a reference maintained by the client.
 	 * 
 	 * @name orion.commands.CommandInvocation
 	 * 
@@ -42,7 +65,22 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 */
 		collectsParameters: function() {
 			return this.commandService && this.commandService.collectsParameters();
+		},
+	
+		/**
+		 * Makes and returns a (shallow) copy of this command invocation.
+		 */
+		makeCopy: function() {
+			var copy =  new CommandInvocation(this.commandService, this.handler, this.items, this.userData, this.command);
+			copy.domNode = this.domNode;
+			copy.domParent = this.domParent;
+			// we want a copy of our parameters, not the original command parameters.
+			if (this.parameters) {
+				copy.parameters = this.parameters.makeCopy();
+			}
+			return copy;
 		}
+
 	};
 	CommandInvocation.prototype.constructor = CommandInvocation;
 
@@ -97,6 +135,13 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			this.inherited(arguments);
 			this.polling = true;
 			this.pollForMissingTarget();
+			
+			// Override the dijit default ARIA role of alert, which causes undesirable behaviour.
+			window.setTimeout(function() {
+				if(dijit._masterTT) {
+					dojo.removeAttr(dijit._masterTT.containerNode, "role");
+				}
+			}, this.showDelay + 1);
 		},
 		
 		pollForMissingTarget: function() {
@@ -149,12 +194,8 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 * @name orion.commands.CommandService
 	 */
 	function CommandService(options) {
-		this._domScope = {};
-		this._objectScope = {};
-		this._globalScope = {};
-		this._namedGroups = {};
-		this._ungrouped = {};
-		this._topics = {};
+		this._commandList = {};
+		this._contributionsByDomNode = {};
 		this._activeBindings = {};
 		this._urlBindings = {};
 		this._init(options);
@@ -167,7 +208,10 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			this._selection = options.selection;
 			dojo.connect(window.document, "onkeydown", dojo.hitch(this, function (evt){
 				evt = evt || window.event;
-				// bindings are ignored if we are in a text field.
+				// bindings are ignored if we are in a text field or editor
+				if (evt.target.contentEditable === "true") {
+					return;
+				}
 				var tagType = evt.target.nodeName.toLowerCase();
 				if (tagType === 'input') {
 					var inputType = evt.target.type.toLowerCase();
@@ -228,12 +272,8 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 								return;
 							} else if (command.callback) {
 								stop(event);
-								window.setTimeout(dojo.hitch(this, function() {
-									if (invocation.parameters && this.collectsParameters()) {
-										this._collectParameters(invocation);
-									} else {
-										command.callback.call(invocation.handler || window, invocation);
-									}	
+								window.setTimeout(dojo.hitch(this, function() {	
+									this._invoke(invocation);
 								}), 0);
 								return;
 							}
@@ -261,7 +301,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 						if (invocation && invocation.parameters && command.callback) {
 							invocation.parameters.setValue(match.parameterName, match.parameterValue);
 							window.setTimeout(dojo.hitch(this, function() {
-								this._collectParameters(invocation);
+								this._invoke(invocation);
 							}), 0);
 							return;
 						}
@@ -271,9 +311,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		},
 		
 		findCommand: function(commandId) {
-			return this._objectScope[commandId] || 
-						this._domScope[commandId] || 
-						this._globalScope[commandId];
+			return this._commandList[commandId];
 		}, 
 		
 		/**
@@ -290,7 +328,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			if (binding && binding.command) {
 				if (binding.command.callback) {
 					window.setTimeout(dojo.hitch(this, function() {
-						this._collectParameters(binding.invocation);
+						this._invoke(binding.invocation);
 					}), 0);
 				}
 			}
@@ -330,11 +368,12 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 *
 		 * @param {DOMElement} node the dom node that is displaying the command, or a node in the parameter collector area
 		 * @param {Function} fillFunction a function that will fill the parameter area
+		 * @param {Function} onClose a function that will be called when the user closes the collector
 		 */
-		openParameterCollector: function(node, fillFunction) {
+		openParameterCollector: function(node, fillFunction, onClose) {
 			if (this._parameterCollector) {
 				this._parameterCollector.close();
-				this._parameterCollector.open(node, fillFunction);
+				this._parameterCollector.open(node, fillFunction, onClose);
 			}
 		},
 		
@@ -361,47 +400,86 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			return this._parameterCollector;
 		},
 		
-		_collectParameters: function(commandInvocation) {
-			var collected = false;
-			if (this._parameterCollector) {
-				commandInvocation.parameters.updateParameters(commandInvocation);
-				collected = commandInvocation.parameters.hasParameters() ? this._parameterCollector.collectParameters(commandInvocation) : false;
-			}
-			if (!collected && commandInvocation.parameters.hasParameters()) {
-				// if parameter collection has been set up, we should have some default collection using
-				// tooltip dialogs.
-				var tooltipDialog = new dijit.TooltipDialog({
-					onBlur: function() {dijit.popup.close(tooltipDialog);}
-				});		
-				var parameterArea = dojo.create("div");
-				var focusNode = this._parameterCollector.getFillFunction(commandInvocation, function() {
-					dijit.popup.close(tooltipDialog);})(parameterArea);
-				tooltipDialog.set("content", parameterArea);
-				var menu = dijit.byId(commandInvocation.domParent.id);
-				var pos;
-				if (menu) {
-					pos = dojo.position(menu.eclipseScopeId, true);
+		/*
+		 * Invoke the specified command, collecting parameters if necessary.  This is used inside the framework
+		 * when the user invokes a command.
+		 */
+		_invoke: function(commandInvocation) {
+			return this._collectAndInvoke(commandInvocation.makeCopy(), false);
+		},
+		
+	
+		/*
+		 * This method is the actual implementation for collecting parameters and invoking a callback.
+		 * "forceCollect" specifies whether we should always collect parameters or consult the parameters description to see if we should.
+		 */
+		_collectAndInvoke: function(commandInvocation, forceCollect) {
+			if (commandInvocation) {
+				// Establish whether we should be trying to collect parameters. 
+				if (this._parameterCollector && commandInvocation.parameters && commandInvocation.parameters.hasParameters() && 
+					(forceCollect || commandInvocation.parameters.shouldCollectParameters())) {
+					var collecting = false;
+					commandInvocation.parameters.updateParameters(commandInvocation);
+					collecting = this._parameterCollector.collectParameters(commandInvocation);
+				
+					// The parameter collector cannot collect.  We will do a default implementation using a tooltip dialog.
+					if (!collecting) {
+						var tooltipDialog = new dijit.TooltipDialog({
+							onBlur: function() {dijit.popup.close(tooltipDialog);}
+						});		
+						var parameterArea = dojo.create("div");
+						var focusNode = this._parameterCollector.getFillFunction(commandInvocation, function() {
+							dijit.popup.close(tooltipDialog);})(parameterArea);
+						tooltipDialog.set("content", parameterArea);
+						var menu = dijit.byId(commandInvocation.domParent.id);
+						var pos;
+						if (menu) {
+							pos = dojo.position(menu.eclipseScopeId, true);
+						} else {
+							pos = dojo.position(commandInvocation.domNode, true);
+						}
+						if (pos.x && pos.y && pos.w) {
+							dijit.popup.open({popup: tooltipDialog, x: pos.x + pos.w - 8, y: pos.y + 8});
+							window.setTimeout(function() {
+								focusNode.focus();
+								focusNode.select();
+							}, 0);
+							collecting = true;
+						}
+					}
+					if (!collecting) {
+						// We have failed, so let's get rid of the parameters and just call the callback
+						commandInvocation.parameters = null;
+						commandInvocation.command.callback.call(commandInvocation.handler || window, commandInvocation);
+					}
 				} else {
-					pos = dojo.position(commandInvocation.domNode, true);
+					// We should not be trying to collect parameters, just call the callback.
+					commandInvocation.command.callback.call(commandInvocation.handler || window, commandInvocation);
 				}
-				if (pos.x && pos.y && pos.w) {
-					dijit.popup.open({popup: tooltipDialog, x: pos.x + pos.w - 8, y: pos.y + 8});
-					window.setTimeout(function() {
-						focusNode.focus();
-						focusNode.select();
-					}, 0);
-					collected = true;
-				}
-			}
-			if (!collected) {
-				commandInvocation.parameters = null;
-				commandInvocation.command.callback.call(commandInvocation.handler, commandInvocation);
+			} else {
+				window.console.log("Client attempted to invoke command without an available (rendered) command invocation");
 			}
 		},
 		
 		/**
+		 * Collect the parameters specified in the given command invocation.  If parameters are
+		 * collected successfully, invoke the command's callback. This method is used by clients who want to 
+		 * control the timing of parameter collection.  For example, if a command must be executed before it can
+		 * be determined what parameters are known, the client can try the command in the callback and then call
+		 * this function if parameters are needed.  In this case, clients typically configure the parameters description
+		 * options with "options.clientWillCollect" set to true.
+		 *
+		 * {@link orion.commands.ParametersDescription}
+		 *
+		 * @param {orion.commands.CommandInvocation} the current invocation of the command 
+		 */
+		collectParameters: function(commandInvocation) {
+			this._collectAndInvoke(commandInvocation, true); 
+		},
+		
+		/**
 		 * Show the keybindings that are registered with the command service inside the specified domNode.
-		 * @param {DOMElement} the dom node where the key bindings should be shown.
+		 * @param targetNode {DOMElement} the dom node where the key bindings should be shown.
 		 */
 		showKeyBindings: function(targetNode) {
 			for (var binding in this._activeBindings) {
@@ -412,48 +490,35 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		},
 		
 		/** 
-		 * Add a command at a particular scope.
-		 * @param {Command} the command being added.
-		 * @param {String} scope The scope to which the command applies.  "global"
-		 *  commands apply across the page, "dom" level commands apply only when the 
-		 *  specified dom element is rendering commands, and "object" scope applies 
-		 *  to particular objects being displayed in widgets such as lists or trees.
-		 * @param {String} topic (optional).  A topic describing the command that can be used 
-		 *  to assemble lists of commands that relate to each other.
+		 * Add a command to the command service.  Nothing will be shown in the UI
+		 * until this command is referenced in a contribution.
+		 * @param command {Command} the command being added.
 		 */
-		addCommand: function(command, scope, topic) {
-			switch (scope) {
-			case "dom":
-				this._domScope[command.id] = command;
-				break;
-			case "object":
-				this._objectScope[command.id] = command;
-				break;
-			case "global":
-				this._globalScope[command.id] = command;
-				break;
-			default:
-				throw "unrecognized command scope " + scope;
-			}
+		addCommand: function(command) {
+			this._commandList[command.id] = command;
 		},
 		
 		/**
 		 * Registers a command group and specifies visual information about the group.
-		 * @param {String} groupId The id of the group, must be unique.  Also used for dom node id
-		 * @param {Number} position The relative position of the group within its parent, optional.
+		 * @param {String} scopeId The id of a DOM element in which the group should be visible.  Required.
+		 *  When commands are rendered for a particular element, the group will be shown only if its scopeId
+		 *  matches the id being rendered.
+		 * @param {String} groupId The id of the group, must be unique.  May be used for a dom node id of
+		 *  the element representing the group
+		 * @param {Number} position The relative position of the group within its parent.  Required.
 		 * @param {String} title The title of the group, optional
 		 * @param {String} parentPath The path of parent groups, separated by '/'.  For example,
 		 *  a path of "group1Id/group2Id" indicates that the group belongs as a child of 
 		 *  group2Id, which is itself a child of group1Id.  Optional.
-		 * @param {String} scopeId The id of a DOM element related to the command's scope.  Optional.
-		 *  For example, if the scope is "dom" level, the scopeId describes which dom id to which this
-		 *  command should be added
 		 */	
 		 
-		addCommandGroup: function(groupId, position, title, parentPath, scopeId) {
-			var parentTable = this._namedGroups;
+		addCommandGroup: function(scopeId, groupId, position, title, parentPath) {
+			if (!this._contributionsByDomNode[scopeId]) {
+				this._contributionsByDomNode[scopeId] = {};
+			}
+			var parentTable = this._contributionsByDomNode[scopeId];
 			if (parentPath) {
-				parentTable = this._createEntryForPath(parentPath);		
+				parentTable = this._createEntryForPath(parentTable, parentPath);		
 			} 
 			if (parentTable[groupId]) {
 				// update existing group definition if info has been supplied
@@ -463,18 +528,14 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 				if (position) {
 					parentTable[groupId].position = position;
 				}
-				if (scopeId) {
-					parentTable[groupId].scopeId = scopeId;
-				}
 			} else {
 				// create new group definition
-				parentTable[groupId] = {title: title, position: position, children: {}, scopeId: scopeId};
-				parentTable.sortedCommands = null;
+				parentTable[groupId] = {title: title, position: position, children: {}};
+				parentTable.sortedContributions = null;
 			}
 		},
 		
-		_createEntryForPath: function(parentPath) {
-			var parentTable = this._namedGroups;
+		_createEntryForPath: function(parentTable, parentPath) {
 			if (parentPath) {
 				var segments = parentPath.split("/");
 				for (var i = 0; i < segments.length; i++) {
@@ -493,10 +554,11 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		/**
 		 * Register a command contribution, which identifies how a command appears
 		 * on a page and how it is invoked.
-		 * @param {String} commandId the id of the command
-		 * @param {Number} position the relative position of the command within its parent
-		 * @param {String} scopeId The id related to the scope.  Depending on the scope,
-		 *  this might be the id of the page or of a dom element.
+		 * @param {String} scopeId The id of a DOM element in which the command should be visible.  Required.
+		 *  When commands are rendered for a particular element, the command will be shown only if its scopeId
+		 *  matches the id being rendered.
+		 * @param {String} commandId the id of the command.  Required.
+		 * @param {Number} position the relative position of the command within its parent.  Required.
 		 * @param {String} parentPath the path of any parent groups, separated by '/'.  For example,
 		 *  a path of "group1Id/group2Id/command" indicates that the command belongs as a child of 
 		 *  group2Id, which is itself a child of group1Id.  Optional.
@@ -504,23 +566,22 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 * @param {orion.commands.CommandKeyBinding} keyBinding a keyBinding for the command.  Optional.
 		 * @param {orion.commands.URLBinding} urlBinding a url binding for the command.  Optional.
 		 */
-		registerCommandContribution: function(commandId, position, scopeId, parentPath, bindingOnly, keyBinding, urlBinding) {
-			var parentTable;
-			if (!scopeId && !parentPath) {
-				parentTable = this._ungrouped;
-			} else {
-				// first ensure the parentPath is represented
-				parentTable = this._createEntryForPath(parentPath);
+		registerCommandContribution: function(scopeId, commandId, position, parentPath, bindingOnly, keyBinding, urlBinding) {
+			if (!this._contributionsByDomNode[scopeId]) {
+				this._contributionsByDomNode[scopeId] = {};
 			}
+			var parentTable = this._contributionsByDomNode[scopeId];
+			if (parentPath) {
+				parentTable = this._createEntryForPath(parentTable, parentPath);		
+			} 
 			
 			// store the contribution
-			parentTable[commandId] = {scopeId: scopeId, position: position};
+			parentTable[commandId] = {position: position};
 			
 			var command;
 			// add to the bindings table now
 			if (keyBinding) {
-				// look for global or dom scope, since we wouldn't be able to ascertain an item scope for a key binding
-				 command = this._domScope[commandId] || this._globalScope[commandId];
+				command = this._commandList[commandId];
 				if (command) {
 					this._activeBindings[commandId] = {command: command, keyBinding: keyBinding, bindingOnly: bindingOnly};
 				}
@@ -528,14 +589,13 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			
 			// add to the url key table
 			if (urlBinding) {
-				// look for global or dom scope, since we wouldn't be able to ascertain an item scope for a URL binding
-				command = this._domScope[commandId] || this._globalScope[commandId];
+				command = this._commandList[commandId];
 				if (command) {
 					this._urlBindings[commandId] = {command: command, urlBinding: urlBinding, bindingOnly: bindingOnly};
 				}
 			}
 			// get rid of sort cache because we have a new contribution
-			parentTable.sortedCommands = null;
+			parentTable.sortedContributions = null;
 		},
 		
 		_isLastChildSeparator: function(parent, style) {
@@ -551,162 +611,160 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 
 		/**
 		 * Render the commands that are appropriate for the given scope.
+		 * @param {String} scopeId The id describing the scope for which we are rendering commands.  Required.
+		 *  Only contributions made to this scope will be rendered.
 		 * @param {DOMElement} parent The element in which commands should be rendered.  If commands have been
 		 *  previously rendered into this element, it is up to the caller to empty any previously generated content.
-		 * @param {String} scope The scope to which the command applies.  "dom" level 
-		 *  commands apply only when a specified dom element is rendering commands.
-		 *  "object" scope applies to particular objects/items displayed in widgets
-		 *  such as list or trees.  "global" commands always apply.
 		 * @param {Object} items An item or array of items to which the command applies.  Optional.  If not
 		 *  items are specified and a selection service was specified at creation time, then the selection
 		 *  service will be used to determine which items are involved. 
 		 * @param {Object} handler The object that should perform the command
 		 * @param {String} renderType The style in which the command should be rendered.  "tool" will render
-		 *  a button-like image or text element in the dom.  "menu" will render a push button menu containing
-		 *  the commands.
-		 * @param {Boolean} forceText When true, always use text and not the icon when showing the command, regardless of the
-		 *  specified renderType.  
+		 *  a tool image in the dom.  "button" will render a text button.  "menu" will render menu items.  The caller
+		 *  must supply the parent menu.
 		 * @param {Object} userData Optional user data that should be attached to generated command callbacks
-		 * @param {String} activeCommandClass (optional) class to use when a command becomes active by focus or hover
-		 * @param {String} inactiveCommandClass (optional) class to use when a command becomes inactive by lost focus or blur
 		 */	
-		renderCommands: function(parent, scope, items, handler, renderType, forceText, userData, activeCommandClass, inactiveCommandClass) {
+		renderCommands: function(scopeId, parent, items, handler, renderType, userData) {
+			if (typeof(scopeId) !== "string") {
+				throw "a scope id for rendering must be specified";
+			}
 			if (typeof(parent) === "string") {
 				parent = dojo.byId(parent);
 			}
 			if (!parent) { 
 				throw "no parent"; 
-			} else if (!parent.id || parent.id === "") {
-				window.console.log("renderCommands: " + scope + "," + renderType + ">> WARNING: command parent must have an id");
 			}
 
 			if (!items) {
 				var cmdService = this;
 				if (this._selection) {
 					this._selection.getSelections(function(selections) {
-						cmdService.renderCommands(parent, scope, selections, handler, renderType, forceText, userData, activeCommandClass, inactiveCommandClass);
+						cmdService.renderCommands(scopeId, parent, selections, handler, renderType, userData);
 					});
 				}
 				return;
 			} 
-			var refCommands;
-			if (scope === "object") {
-				refCommands = this._objectScope;
-				// render unnamed/ungrouped item scopes first
-				this._render(this._ungrouped, parent, scope, items, handler, renderType, forceText, userData, refCommands, activeCommandClass, inactiveCommandClass);
-			} else if (scope === "dom") {
-				refCommands = this._domScope;
-			} else if (scope === "global") {
-				refCommands = this._globalScope;
-			} else {
-				throw "Unrecognized command scope " + scope;
-			}
-			this._render(this._namedGroups, parent, scope, items, handler, renderType, forceText, userData, refCommands, activeCommandClass, inactiveCommandClass);
-			// If the last thing we rendered was a group, it's possible there is an unnecessary trailing separator.
-			if (renderType === "tool" || renderType === "button") {
-				if (this._isLastChildSeparator(parent, renderType)) {
-					parent.removeChild(parent.childNodes[parent.childNodes.length-1]);
+			var contributions = this._contributionsByDomNode[scopeId];
+			if (contributions) {
+				this._render(this._contributionsByDomNode[scopeId], parent, items, handler, renderType, userData);
+				// If the last thing we rendered was a group, it's possible there is an unnecessary trailing separator.
+				if (renderType === "tool" || renderType === "button") {
+					if (this._isLastChildSeparator(parent, renderType)) {
+						parent.removeChild(parent.childNodes[parent.childNodes.length-1]);
+					}
+				} else if (renderType=== "menu") {
+					if (this._isLastChildSeparator(parent, renderType)) {
+						var child = parent.getChildren()[parent.getChildren().length-1];
+						parent.removeChild(child);
+						child.destroy();
+					}
 				}
-			} else if (renderType=== "menu") {
-				if (this._isLastChildSeparator(parent, renderType)) {
-					var child = parent.getChildren()[parent.getChildren().length-1];
-					parent.removeChild(child);
-					child.destroy();
-				}
-			}
-			if (scope === "dom" || scope === "global") {
+				// TODO should the caller have to do this?
 				mUtil.forceLayout(parent);
 			}
 		},
 		
-		_render: function(commandItems, parent, scope, items, handler, renderType, forceText, userData, commandList, activeCommandClass, inactiveCommandClass) {
+		_render: function(contributions, parent, items, handler, renderType, userData) {
 			// sort the items
-			var positionOrder = commandItems.sortedCommands;
-			if (!positionOrder) {
-				positionOrder = [];
-				for (var key in commandItems) {
-					var item = commandItems[key];
-					if (item && typeof(item.position) === "number") {
-						item.id = key;
-						positionOrder.push(item);
+			var sortedByPosition = contributions.sortedContributions;
+			if (!sortedByPosition) {
+				sortedByPosition = [];
+				for (var key in contributions) {
+				    if (!contributions.hasOwnProperty || contributions.hasOwnProperty(key)) {
+						var item = contributions[key];
+						if (item && typeof(item.position) === "number") {
+							item.id = key;
+							sortedByPosition.push(item);
+						}
 					}
 				}
-				positionOrder.sort(function(a,b) {
+				sortedByPosition.sort(function(a,b) {
 					return a.position-b.position;
 				});
-				commandItems.sortedCommands = positionOrder;
+				contributions.sortedContributions = sortedByPosition;
 			}
-			// now traverse the command items and render as we go
-			for (var i = 0; i < positionOrder.length; i++) {
-				var image, id, menuButton, invocation;
-				if (positionOrder[i].children) {
-					var group = positionOrder[i];
-					if (group.scopeId && parent.id !== group.scopeId) {
-						continue;
-					}
+			// now traverse the sorted contributions and render as we go
+			for (var i = 0; i < sortedByPosition.length; i++) {
+				var id, menuButton, invocation;
+				if (sortedByPosition[i].children) {
+					var group = sortedByPosition[i];
 					var children;
+					var childContributions = sortedByPosition[i].children;
+					var commandService = this;
 					if (renderType === "tool" || renderType === "button") {
 						if (group.title) {
-							// we need a named menu button, but first let's see if we actually have content
+							// We need a named menu button.  We used to first render into the menu and only 
+							// add a menu button in the dom when we knew it was needed.  For performance, though, we need
+							// to be asynchronous in traversing children, so we will add the menu and only remove it
+							// if it turns out we didn't need it.  
+							// If we wait until the end of asynch processing to add the menu button, the order will
+							// not be right, and we could have css ripple.  The down side to this approach is that a dropdown
+							// could appear and then not be needed.  It would be dangerous to assume that null items or an empty
+							// item array always mean "don't render" since some commands ignore the items.  It seems the best we
+							// can do is add it as not visible (thus reserving space) and make it visible when needed.   This could
+							// still cause ripple but helps with cases like the "More" menu which is always last.
+							
 							var newMenu= new dijit.Menu({
 								style: "display: none;"
 							});
-							// if commands are scoped to the dom, we'll need to identify a menu with the dom id of its original parent
+							menuButton = new dijit.form.DropDownButton({
+								label: group.title === "*" ? "Actions" : group.title, // TODO undocumented hack
+								showLabel:  group.title !== "*",
+								style: "visibility: hidden;",
+								dropDown: newMenu
+						        });
+							dojo.addClass(menuButton.domNode, "commandMenu");
+							var menuParent = parent;
+							if (parent.nodeName.toLowerCase() === "ul") {
+								menuParent = dojo.create("li", {}, parent);
+							} else {
+								dojo.addClass(menuButton.domNode, "commandMargins");
+							}
+							dojo.removeAttr(menuButton.titleNode, "title"); // there is no need for a native browser tooltip
+							dojo.destroy(menuButton.valueNode); // the valueNode gets picked up by screen readers; since it's not used, we can get rid of it
+							if (group.title === "*") {
+								dojo.addClass(menuButton.domNode, "textless");
+								new CommandTooltip({
+									connectId: [menuButton.focusNode],
+									label: "Actions menu",
+									position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
+									commandParent: parent,
+									commandService: this
+								});
+							}
+							_setupActivateVisuals(menuButton.domNode, menuButton.focusNode);
+							dojo.place(menuButton.domNode, menuParent, "last");
+							// we'll need to identify a menu with the dom id of its original parent
 							newMenu.eclipseScopeId = parent.eclipseScopeId || parent.id;
-							// render the children
-							this._render(positionOrder[i].children, newMenu, scope, items, handler, "menu", forceText, userData, commandList, activeCommandClass); 
-							// special post-processing when we've created a menu in an image bar.
-							// we want to get rid of a trailing separator in the menu first, and then decide if a menu is necessary
-							children = newMenu.getChildren();
-							if (this._isLastChildSeparator(newMenu, "menu")) {
-								var trailingSep = children[children.length-1];
-								newMenu.removeChild(trailingSep);
-								trailingSep.destroy();
+							// render the children asynchronously
+							window.setTimeout(dojo.hitch(this, function() {
+								commandService._render(childContributions, newMenu, items, handler, "menu", userData); 
+								// special post-processing when we've created a menu in an image bar.  We want to get rid 
+								// of a trailing separator in the menu first, and then decide if our menu is necessary
 								children = newMenu.getChildren();
-							}
-							// now decide if we needed the menu or not
-							if (children.length > 0) {
-								// we don't need a menu to contain the command if there is only one item.
-								var needMenu = children.length > 1;
-								var menuCommand = children[0].eclipseCommand;
-								if (needMenu) {
-									menuButton = new dijit.form.DropDownButton({
-										label: group.title === "*" ? "Actions" : group.title, // TODO undocumented hack
-										showLabel:  group.title !== "*",
-										dropDown: newMenu
-								        });
-									dojo.addClass(menuButton.domNode, "commandMenu");
-									dojo.destroy(menuButton.valueNode); // the valueNode gets picked up by screen readers; since it's not used, we can get rid of it
-									if (group.title === "*") {
-										dojo.addClass(menuButton.domNode, "textless");
-										new CommandTooltip({
-											connectId: [menuButton.domNode],
-											label: "Actions menu",
-											position: ["above", "left", "right", "below"], // otherwise defaults to right and obscures adjacent commands
-											commandParent: parent,
-											commandService: this
-										});
-									}
-									menuCommand._setupActivateVisuals(menuButton.domNode, menuButton.focusNode, activeCommandClass, inactiveCommandClass);
-									dojo.place(menuButton.domNode, parent, "last");
-								} else {
-									id = renderType + menuCommand.id + i;  // using the index ensures unique ids within the DOM when a command repeats for each item
-									invocation = new CommandInvocation(this, handler, items, userData, menuCommand);
-									if (renderType === "button") {
-										menuCommand._addButton(parent, forceText, id, invocation, activeCommandClass, inactiveCommandClass);
-									} else {
-										menuCommand._addTool(parent, forceText, id, invocation, activeCommandClass, inactiveCommandClass);
-									}
+								if (this._isLastChildSeparator(newMenu, "menu")) {
+									var trailingSep = children[children.length-1];
+									newMenu.removeChild(trailingSep);
+									trailingSep.destroy();
+									children = newMenu.getChildren();
 								}
-							}
-						} else {
+								// now determine if we actually needed the menu or not
+								if (children.length === 0) {
+									menuButton.destroyRecursive();
+								} else {
+									dojo.style(menuButton.domNode, "visibility", "visible");
+								}
+							}), 0);
+						} else {  
+							// rendering a group using a separator on each end. We do it synchronously because order matters with
+							// non grouped items.
 							var sep;
 							// Only draw a separator if there is a non-separator preceding it.
 							if (parent.childNodes.length > 0 && !this._isLastChildSeparator(parent, renderType)) {
 								sep = this.generateSeparatorImage(parent);
 							}
-							this._render(positionOrder[i].children, parent, scope, items, handler, renderType, forceText, userData, commandList, activeCommandClass, inactiveCommandClass); 
-
+							commandService._render(childContributions, parent, items, handler, renderType, userData); 
+	
 							// make sure that more than just the separator got rendered before rendering a trailing separator
 							if (parent.childNodes.length > 0) {
 								var lastRendered = parent.childNodes[parent.childNodes.length - 1];
@@ -719,21 +777,32 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 						// group within a menu
 						if (group.title) {
 							var subMenu = new dijit.Menu();
-							this._render(positionOrder[i].children, subMenu, scope, items, handler, renderType, forceText, userData, commandList, activeCommandClass, inactiveCommandClass); 
-							if (subMenu.getChildren().length > 0) {
-								parent.addChild(new dijit.PopupMenuItem({
-									label: group.title,
-									popup: subMenu
-								}));
-							}
-						} else {
+							// popup menu placeholder must be added synchronously to respect order.
+							// We will remove it if it ends up empty
+							var groupPopup = new dijit.PopupMenuItem({
+								label: group.title,
+								popup: subMenu
+							});
+							parent.addChild(groupPopup);
+							// asynchronously populate the menu
+							window.setTimeout(dojo.hitch(this, function() {
+								commandService._render(childContributions, subMenu, items, handler, renderType, userData); 
+								if (subMenu.getChildren().length === 0) {
+									groupPopup.set("label", "removeme");
+									parent.removeChild(groupPopup);
+									groupPopup.destroyRecursive();
+								}
+							}), 0);
+						} else {  
+							// menu items with leading and trailing separators
 							// don't render a separator if there is nothing preceding, or if the last thing was a separator
 							var menuSep;
 							if (parent.getChildren().length > 0 && !this._isLastChildSeparator(parent, renderType)) {
 								menuSep = new dijit.MenuSeparator();
 								parent.addChild(menuSep);
 							}
-							this._render(positionOrder[i].children, parent, scope, items, handler, renderType, forceText, userData, commandList, activeCommandClass, inactiveCommandClass); 
+							// synchronously render the children since order matters
+							commandService._render(childContributions, parent, items, handler, renderType, userData); 
 							// Add a trailing separator if children rendered.
 							var menuChildren = parent.getChildren();
 							if (menuChildren[menuChildren.length - 1] !== menuSep) {
@@ -744,32 +813,16 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 					}
 				} else {
 					// processing atomic commands
-					var command = commandList[positionOrder[i].id];
+					var command = this._commandList[sortedByPosition[i].id];
 					var render = command ? true : false;
 					var keyBinding = null;
 					var urlBinding = null;
 					if (command) {
-						if (scope === "dom" || scope === "global") {
-							if (renderType === "tool" || renderType === "button") {
-								render = parent.id === positionOrder[i].scopeId;
-							} else if (renderType=== "menu") {
-								render = parent.eclipseScopeId === positionOrder[i].scopeId;
-							} else {
-								render = false;
-							}
-						} else if (scope === "object") {
-							// if there is a scope id on the contribution it's not supposed to show up here
-							// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=368699
-							render = !positionOrder[i].scopeId;
-						} 
-						var checkBinding = render && (scope === "global" || scope === "dom");
-						
 						invocation = new CommandInvocation(this, handler, items, userData, command);
 						invocation.domParent = parent;
-						
 						var enabled = render && (command.visibleWhen ? command.visibleWhen(items) : true);
 						// ensure that keybindings are bound to the current handler, items, and user data
-						if (checkBinding && this._activeBindings[command.id] && this._activeBindings[command.id].keyBinding) {
+						if (this._activeBindings[command.id] && this._activeBindings[command.id].keyBinding) {
 							keyBinding = this._activeBindings[command.id];
 							if (enabled) {
 								keyBinding.invocation = invocation;
@@ -783,7 +836,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 						}
 						
 						// same for url bindings
-						if (checkBinding && this._urlBindings[command.id] && this._urlBindings[command.id].urlBinding) {
+						if (this._urlBindings[command.id] && this._urlBindings[command.id].urlBinding) {
 							urlBinding = this._urlBindings[command.id];
 							if (enabled) {
 								urlBinding.invocation = invocation;
@@ -834,12 +887,12 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 						} else {
 							if (renderType === "tool") {
 								id = "tool" + command.id + i;  // using the index ensures unique ids within the DOM when a command repeats for each item
-								command._addTool(parent, forceText, id, invocation, activeCommandClass, inactiveCommandClass);	
+								command._addTool(parent, id, invocation);	
 							} else if (renderType === "button") {
 								id = "button" + command.id + i;  // using the index ensures unique ids within the DOM when a command repeats for each item
-								command._addButton(parent, forceText, id, invocation, activeCommandClass, inactiveCommandClass);	
+								command._addButton(parent, id, invocation);	
 							} else if (renderType === "menu") {
-								command._addMenuItem(parent, invocation, activeCommandClass, inactiveCommandClass);
+								command._addMenuItem(parent, invocation);
 							}
 						}
 					} 
@@ -847,24 +900,6 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			}
 		},
 		
-		/**
-		 * Registers a function that should be called when the specified DOM element is hidden.
-		 * 
-		 * @param {String|DOMElement} domElementOrId the element containing the rendered commands.  This should
-		 *  be a DOM element in which commands are being rendered.
-		 * @param {Function} onHide a function to be called when the dom element is hidden
-		 */
-		whenHidden: function(domElementOrId, onHide) {
-			var id = typeof domElementOrId === "string" ? domElementOrId : domElementOrId.id;
-			if (!this.hidden) {
-				this.hidden = {};
-			}
-			if (this.hidden[id]) {
-				this.hidden[id].push(onHide);
-			} else {
-				this.hidden[id] = [onHide];
-			}
-		},
 				
 		/**
 		 * Add a dom node appropriate for using a separator between different groups
@@ -923,7 +958,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 *  sprite itself.  Optional.
 	 * @param {Function} options.visibleWhen A callback that returns a boolean to indicate whether the command should be visible
 	 *  given a particular set of items that are selected.  Optional, defaults to always visible.
-	 * @param {ParametersDescription} options.parameters A description of parameters that should be collected before invoking
+	 * @param {orion.commands.ParametersDescription} options.parameters A description of parameters that should be collected before invoking
 	 *  the command.
 	 * @param {Image} options.image the image that may be used to represent the callback.  A text link will be shown in lieu
 	 *  of an image if no image is supplied.  Optional.
@@ -955,7 +990,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 *  For href commands, this is just a link.
 		 *  For non-href commands, this is an image button.  If there is no image button, use bolded text button.
 		 */
-		_addTool: function(parent, forceText, name, context, activeCommandClass, inactiveCommandClass) {
+		_addTool: function(parent, name, context) {
 			context.handler = context.handler || this;
 			var element, image;
 			if (this.hrefCallback) {
@@ -965,7 +1000,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 				}
 			} else {
 				element = dojo.create("span", {tabindex: "0", role: "button"});
-				if (forceText || !this.hasImage()) {
+				if (!this.hasImage()) {
 					var text = window.document.createTextNode(this.name);
 					dojo.place(text, element, "last");
 					dojo.addClass(element, "commandMissingImageButton commandButton");
@@ -975,8 +1010,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 					this._addAccessibleLabel(element);
 				}
 				this._hookCallback(element, context);
-				var overClass = image ? "commandImageOver" : "commandButtonOver";
-				this._setupActivateVisuals(element, element, activeCommandClass, inactiveCommandClass, overClass);			
+				_setupActivateVisuals(element, element, image ? "commandImageOver" : "commandButtonOver");			
 
 			}
 			context.domNode = element;
@@ -990,6 +1024,11 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 					commandService: context.commandService
 				});
 			}
+			if (parent.nodeName.toLowerCase() === "ul") {
+				parent = dojo.create("li", {}, parent);
+			} else {
+				dojo.addClass(element, "commandMargins");
+			}
 			dojo.place(element, parent, "last");
 		},
 	
@@ -998,7 +1037,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 *  For href commands, this is just a link.
 		 *  For non-href commands, this is a text button.  If there is no name, use an image.
 		 */
-		_addButton: function(parent, forceText, name, context, activeCommandClass, inactiveCommandClass) {
+		_addButton: function(parent, name, context) {
 			context.handler = context.handler || this;
 			var element;
 			if (this.hrefCallback) {
@@ -1021,7 +1060,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 					// ensure there is accessible text describing this image
 					this._addAccessibleLabel(element);
 				}
-				this._setupActivateVisuals(element, element, activeCommandClass, inactiveCommandClass, overClass);			
+				_setupActivateVisuals(element, element, overClass);			
 			}
 			element.id = name;
 			if (this.tooltip) {
@@ -1035,6 +1074,11 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			}
 			context.domParent = parent;
 			context.domNode = element;
+			if (parent.nodeName.toLowerCase() === "ul") {
+				parent = dojo.create("li", {}, parent);
+			} else {
+				dojo.addClass(element, "commandMargins");
+			}
 			dojo.place(element, parent, "last");
 		},
 		_addMenuItem: function(parent, context) {
@@ -1067,15 +1111,9 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 					}
 				}
 			} else if (this.callback) {
-				if (this.parameters && context.collectsParameters()) {
-					menuitem.onClick = dojo.hitch(this, function() {
-						context.commandService._collectParameters(context);
-					});
-				} else {
-					menuitem.onClick = dojo.hitch(this, function() {
-						this.callback.call(context.handler, context);
-					});
-				}
+				menuitem.onClick = dojo.hitch(this, function() {
+					context.commandService._invoke(context);
+				});
 			}
 			
 			// we may need to refer back to the command.  
@@ -1117,22 +1155,12 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		 */
 		_hookCallback: function(domNode, context) {
 			dojo.connect(domNode, "onclick", this, function() {
-				// collect parameters in advance if specified
-				if (this.parameters && context.collectsParameters()) {
-					context.commandService._collectParameters(context);
-				} else if (this.callback) {
-					this.callback.call(context.handler, context);
-				}
+				context.commandService._invoke(context);
 			});
 			// onClick events do not register for spans when using the keyboard
 			dojo.connect(domNode, "onkeypress", this, function(e) {
-				if (e.keyCode === dojo.keys.ENTER || e.keyCode === dojo.keys.SPACE) {						
-				// collect parameters in advance if specified						
-					if (this.parameters && context.collectsParameters()) {							
-						context.commandService._collectParameters(context);						
-					} else if (this.callback) {
-						this.callback.call(context.handler, context);						
-					}					
+				if (e.keyCode === dojo.keys.ENTER || e.charCode === dojo.keys.SPACE) {						
+					context.commandService._invoke(context);					
 				}				
 			});
 		},
@@ -1147,40 +1175,6 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			}
 		},
 		
-		/*
-		 * stateless helper
-		 */
-		_setupActivateVisuals: function(domNode, focusNode, activeCommandClass, inactiveCommandClass, overClass) {
-			if (inactiveCommandClass) {
-				dojo.addClass(domNode, inactiveCommandClass);
-			}
-			var makeActive = function() {
-				if (overClass) {
-					dojo.addClass(this, overClass);
-				}
-				if (activeCommandClass) {
-					dojo.addClass(this, activeCommandClass);
-				}
-				if (inactiveCommandClass) {
-					dojo.removeClass(this, inactiveCommandClass);
-				}
-			};
-			var makeInactive = function() {
-				if (overClass) {
-					dojo.removeClass(this, overClass);
-				}
-				if (activeCommandClass) {
-					dojo.removeClass(this, activeCommandClass);
-				}
-				if (inactiveCommandClass) {
-					dojo.addClass(this, inactiveCommandClass);
-				}
-			};
-			dojo.connect(domNode, "onmouseover", domNode, makeActive);
-			dojo.connect(focusNode, "onfocus", domNode, makeActive);
-			dojo.connect(domNode, "onmouseout", domNode, makeInactive);
-			dojo.connect(focusNode, "onblur", domNode, makeInactive);
-		},
 		/**
 		 * Populate the specified menu with choices using the choiceCallback.
 		 * Used internally by the command service.  Not intended to be overridden or called
@@ -1263,7 +1257,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 * @param {Boolean} mod4 the fourth modifier (usually Control on the Mac).
 	 * 
 	 * @name orion.commands.CommandKeyBinding
-	 * 
+	 * @class
 	 */
 	function CommandKeyBinding (keyCode, mod1, mod2, mod3, mod4) {
 		if (typeof(keyCode) === "string") {
@@ -1319,7 +1313,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 * @param {String} parameterName the name of the parameter being specified in the value of the query 
 	 * 
 	 * @name orion.commands.URLBinding
-	 * 
+	 * @class
 	 */
 	function URLBinding (token, parameterName) {
 		this.token = token;
@@ -1349,11 +1343,11 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 *
 	 * @param {String} name the name of the parameter
 	 * @param {String} type the type of the parameter, one of the HTML5 input types
-	 * @param {String} label the (optional) label that should be used when showing the parameter
-	 * @param {String} value the (optional) default value for the parameter
+	 * @param {String} [label] the (optional) label that should be used when showing the parameter
+	 * @param {String} [value] the (optional) default value for the parameter
 	 * 
 	 * @name orion.commands.CommandParameter
-	 * 
+	 * @class
 	 */
 	function CommandParameter (name, type, label, value) {
 		this.name = name;
@@ -1379,19 +1373,28 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 	 * before calling a command callback.  The command is expected to provide UI for optional parameter, when the user has
 	 * signalled a desire to provide optional information.
 	 *
-	 * @param {Array} parameters an array of CommandParameters that are required
-	 * @param {Boolean} [options] specifies whether additional, optional parameters can be specified
+	 * @param {orion.commands.CommandParameter[]} parameters an array of CommandParameters that are required
+	 * @param {Object} options The parameters description options object.
+	 * @param {Boolean} options.hasOptionalParameters specifies whether there are additional optional parameters
+	 *			that could be collected.  If true, then the collector will show an affordance for invoking an 
+	 *			additional options collector and the client can use the optionsRequested flag to determine whether
+	 *			additional parameters should be shown.  Default is false.
+	 * @param {Boolean} options.clientCollect specifies whether the client will collect the parameters in its
+	 *			callback.  Default is false, which means the callback will not be called until an attempt has
+	 *			been made to collect parameters.
 	 * @param {Function} [getParameters] a function used to define the parameters just before the command is invoked.  This is used
 	 *			when a particular invocation of the command will change the parameters.  Any stored parameters will be ignored, and
 	 *          replaced with those returned by this function.  If no parameters (empty array or null) are returned, then it is assumed
 	 *          that the command should not try to obtain parameters before invoking the command's callback.  The function will be passed
 	 *          the CommandInvocation as a parameter.
 	 * @name orion.commands.ParametersDescription
-	 * 
+	 * @class
 	 */
 	function ParametersDescription (parameters, options, getParameters) {
 		this._storeParameters(parameters);
-		this.options = options;
+		this._hasOptionalParameters = options && options.hasOptionalParameters;
+		this._clientCollect = options && options.clientCollect;
+		this._options = options;  // saved for making a copy
 		this.optionsRequested = false;
 		this.getParameters = getParameters;
 	}
@@ -1416,15 +1419,32 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 			}
 		},
 		
+		/**
+		 * Returns a boolean indicating whether any parameters have been specified.
+		 *
+		 * @returns {Boolean} whether there are parameters to collect.
+		 */
 		hasParameters: function() {
-			return !(this.parameterTable === null);
+			return this.parameterTable !== null;
 		},
+		
+		/**
+		 * Returns a boolean indicating whether a collector should try to collect parameters.  If there
+		 * are no parameters specified, or the client is expecting to collect them, this will return
+		 * <code>false</code>.
+		 *
+		 * @returns {Boolean} indicating whether the caller should attempt to collect the parameters.
+		 */
+		shouldCollectParameters: function() {
+			return !this._clientCollect && this.hasParameters();
+		},
+				
 		/**
 		 * Returns the CommandParameter with the given name, or <code>null</code> if there is no parameter
 		 * by that name.
 		 *
 		 * @param {String} name the name of the parameter
-		 * @returns {CommandParameter} the parameter with the given name
+		 * @returns {orion.command.CommandParameter} the parameter with the given name
 		*/
 		parameterNamed: function(name) {
 			return this.parameterTable[name];
@@ -1461,7 +1481,7 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 		/**
 		 * Evaluate the specified function for each parameter.
 		 *
-		 * @param {Function} a function which operates on a provided command parameter
+		 * @param {Function} func a function which operates on a provided command parameter
 		 *
 		 */
 		forEach: function(func) {
@@ -1483,7 +1503,13 @@ define(['require', 'dojo', 'dijit', 'orion/util', 'orion/PageUtil', 'dijit/Menu'
 				var newParm = new CommandParameter(parm.name, parm.type, parm.label, parm.value);
 				parameters.push(newParm);
 			});
-			return new ParametersDescription(parameters, this.options, this.getParameters);
+			return new ParametersDescription(parameters, this._options, this.getParameters);
+		 },
+		 /**
+		  * Return a boolean indicating whether additional optional parameters are available.
+		  */
+		 hasOptionalParameters: function() {
+			return this._hasOptionalParameters;
 		 }
 	};
 	ParametersDescription.prototype.constructor = ParametersDescription;
